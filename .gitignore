@@ -1,0 +1,4 @@
+# Windows VM captures include the firmware-update transfer (proprietary Dell
+# firmware); keep them local, never publish.
+windows-captures/
+__pycache__/
