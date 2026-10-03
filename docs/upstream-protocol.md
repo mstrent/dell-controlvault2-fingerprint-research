@@ -13,6 +13,10 @@ reader in a Dell Latitude 7490 owned by the author:
 - Dell's Windows driver in a VM with the reader passed through: version query,
   enrollment, Windows Hello login. Windows uses a protected (encrypted)
   session; only its plaintext commands are used here;
+- the vendor's Linux driver as patched by
+  [grosa787/dell-controlvault2-fingerprint-linux#13](https://github.com/grosa787/dell-controlvault2-fingerprint-linux/pull/13)
+  to send the commit and delete values Dell's Windows driver uses (Windows
+  sends them inside its protected session): enroll, verify, delete;
 - a small probe tool (Python, pyusb) that sends the commands seen in those
   captures, to test single behaviors (identify with several handles,
   deleted handles, brief touches, the version query, `0x82`).
@@ -49,9 +53,11 @@ bytes, several USB packets). Relevant keys:
 | `USH_CHIPID` | `05810211` |
 | `USH_REL_UPGRADE_VER` | `00047026` (4.7.26, 2017; factory on a Latitude 7480) and `00412001` (4.12.001; factory on a 7490, also in Dell package 4.12.5.8): enrollment commit fails with `0x24` · `00412015` (4.12.015, Dell package 4.12.11.15): enrollment works |
 
-The driver reads this at open and refuses to enroll on firmware older than
-`00412015`, with a message pointing to Dell's ControlVault2 firmware package.
-If the version can't be read, status `0x24` at commit gives the same error.
+The `0x24` failures above were with empty commit arguments; the driver now
+sends the vendor's (see [Commands](#commands)), untested on the older
+versions. It reads the version at open and, on firmware older than
+`00412015`, logs that enrollment may fail and points to Dell's ControlVault2
+firmware package. Status `0x24` at commit gives the same advice as an error.
 
 ## Transport
 
@@ -103,7 +109,7 @@ u32 kind | u32 length | data[length], zero-padded to a 4-byte boundary
 |---|---|
 | 0 | fixed-size value or blob (handles, IDs) |
 | 1 | string |
-| 2 | variable-length block; sent empty except for the `0x2f` handle list |
+| 2 | variable-length block: the `0x2f` handle list, the `0x6e`/`0x0a` attribute and authorization blocks; otherwise empty |
 | 3 | buffer, sent with length 0 in commit requests |
 
 The open request declares `1:7` for `"myAppID"` but sends the terminating NUL
@@ -118,14 +124,21 @@ is rejected with status `0x0d`.
 | `0x04` | close session | 0 | `0:4` session handle | — |
 | `0x39` | get version | 0 | `0:4 = 0` | `1:n` version text |
 | `0x82` | sensor reset | 0 | `0:4 = 0` (flags `0x0040`) | — (status 0 after ~0.7 s); see [Degraded state](#degraded-state-after-suspend) |
-| `0x8a` | begin enrollment | 0 | `0:4 = 0` | — |
+| `0x8a` | begin enrollment | 0 | `0:4 = 0` | — (sent before every enrollment capture; keeps the samples already accepted) |
 | `0x66` | capture start | session | `0:4` session, `0:4 = 2`, `0:4` mode `0x23` | `0:20` capture ID |
 | `0x68` | capture cancel | 0 | `0:4 = 0` | — (status 0 also with nothing pending) |
 | `0x6c` | enrollment sample | session | `0:4` session, `0:20` capture ID, `2:0` | `0:4` done flag (low byte; upper bytes unrelated), `0:20` ID, `0:4` (0) |
-| `0x6e` | commit enrollment | session | `0:4` session, `0:20` final ID, `2:0`, `2:0`, `3:0` | `3:0`, `0:4` **template handle** |
+| `0x6e` | commit enrollment | session | `0:4` session, `0:20` final ID, `2:8` attributes, `2:21` authorization, `3:0` | `3:0`, `0:4` **template handle** |
 | `0x6d` | discard enrollment | 0 | `0:4 = 0` | — |
 | `0x2f` | match | session | `0:4` session, `0:4 = 0x48`, `0:4 = 0x53e2`, `0:4 = 0`, `2:4n` template handles | `0:4` match (1/0), `0:4` matched template handle (0 if none) |
-| `0x0a` | delete template | session | `0:4` session, `0:4` template handle, `2:0` | — (~1.4 s) |
+| `0x0a` | delete template | session | `0:4` session, `0:4` template handle, `2:21` authorization | — (~1.4 s) |
+
+Attributes are `00 00 04 00 04 00 00 00`. Authorization is
+`01 01 ff 00 00 00 0d 00 0c` followed by `"BroadcomWBF\0"`, 21 bytes. The
+vendor's Linux driver sends both blocks empty; with those, firmware
+`00412015` commits and deletes normally, older firmware rejects the commit
+(`0x24`). With the authorization, delete also removes templates committed
+without it. The meaning of the individual bytes is unknown.
 
 Template handles are 32-bit values assigned by the chip at commit. They
 persist across sessions, reboots and power loss, and must be stored by the
@@ -155,16 +168,21 @@ capture does not time out (no event in 100 s without a touch).
 
 ```
 0x02 open                        → session
-0x8a begin enrollment
 repeat:
-    0x66 capture start (0x23)    → capture ID     (0x85: send 0x68, retry once)
+    0x8a begin enrollment
+    0x66 capture start (0x23)    → capture ID     (0x85: send 0x68, then 0x8a, retry once)
     wait for interrupt type 3
     0x6c sample(capture ID)      → status 0: done flag, ID
                                  → status 0x59: sample rejected, repeat
 until done flag == 1
-0x6e commit(final ID)            → template handle
+0x6e commit(final ID, attributes, authorization) → template handle
 0x04 close
 ```
+
+- Dell's Windows driver sends `0x8a` before every capture (it also opens a
+  protected session per sample, which is out of scope); the vendor's Linux
+  driver sends it once. The driver follows Windows. Both complete in 4
+  samples on `00412015`.
 
 - On the final sample, the ID returned by `0x6c` differs from the capture ID
   sent; the commit carries it. Earlier replies echo the capture ID.
@@ -229,7 +247,7 @@ kept stored templates. The driver sends `0x82` at every open (about 0.7 s).
 | `0x00` | all | success | — |
 | `0x0d` | `0x6e` | malformed request; pending enrollment kept | protocol error |
 | `0x1b` | `0x2f`, `0x0a` | template handle not on the chip | `DATA_NOT_FOUND`; identify falls back to one handle at a time |
-| `0x24` | `0x6e` | firmware `00412001`: commit rejected, enrollment consumed | `NOT_SUPPORTED` (firmware update needed) |
+| `0x24` | `0x6e` | firmware `00412001`, commit with empty arguments: rejected, enrollment consumed | `NOT_SUPPORTED` (firmware update suggested) |
 | `0x47` | `0x2f`, `0x66` | `0x2f` with an empty handle list; `0x66` mode `0x48` after a match | no match |
 | `0x59` | `0x6c` | sample rejected (poor or partial press) | retry |
 | `0x85` | `0x66` | capture already pending (first `0x66` after another client exited) | `0x68` cancel, retry once |
@@ -253,4 +271,7 @@ session instead, which is out of scope.
    parameters (`0x44`, app/user strings), of `0x66` parameter 2 (`2`), and of
    mode `0x48`.
 4. Other finger-event lengths besides 0 and 7.
-5. Behavior on firmware other than `00412001` and `00412015`.
+5. Behavior on firmware other than `00412001` and `00412015`, and whether
+   firmware before `00412015` enrolls with the commit's attribute and
+   authorization blocks.
+6. Meaning of the attribute and authorization bytes.

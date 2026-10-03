@@ -16,33 +16,44 @@ the probe and development tools, and the design and implementation notes.
 | File | What |
 |---|---|
 | [`docs/upstream-protocol.md`](docs/upstream-protocol.md) | Clean protocol specification (the version in the merge request) |
+| [`docs/upstream-mr.md`](docs/upstream-mr.md) | The merge request description, which embeds that specification |
 | [`protocol/PROTOCOL.md`](protocol/PROTOCOL.md) | Working protocol notes, with dates and how each fact was found |
-| `protocol/captures/*.pcap` | `usbmon` captures of the vendor's Linux driver: enroll, verify, identify, delete |
+| `protocol/captures/*.pcap` | `usbmon` captures of the vendor's Linux driver: enroll, verify, identify, delete; `08-tod-pr13-commit-delete.pcap` is the commit and delete with their attribute and authorization blocks (see [Provenance](#provenance)) |
 | `enroll-full.pcap`, `enroll-usbmon*.txt` | Earlier enrollment captures (factory firmware) |
 | [`cvtool.py`](cvtool.py) + [`run-cvtool.sh`](run-cvtool.sh) | Probe tool that sends single protocol commands (allow-listed); `cvtool.log` is its log |
 | [`cvdump.py`](cvdump.py), [`devtools/cvraw.py`](devtools/cvraw.py) | Decoders for the captures |
-| [`devtools/`](devtools) | Scripts to run the libfprint driver from a build tree, record its umockdev tests, and install it for fprintd |
+| [`devtools/`](devtools) | Scripts to run the libfprint driver from a build tree, record its umockdev tests, install it for fprintd, and test PAM stacks (`pamtest.py`) |
+| [`docs/kde-fingerprint-login.md`](docs/kde-fingerprint-login.md) | Fingerprint login on KDE Plasma: PAM setup, KWallet, upstream status |
 | [`docs/superpowers/`](docs/superpowers) | Design spec, implementation plan and execution log (every decision and finding) |
 | [`HANDOFF.md`](HANDOFF.md), [`CLAUDE.md`](CLAUDE.md) | Project status and working context |
 
 ## Things worth knowing
 
-- **Firmware:** enrollment needs ControlVault2 firmware `00412015` (4.12.015)
-  or newer. Factory firmware rejects every enrollment commit with status
-  `0x24` (seen: `00412001` on a 7490, `00047026` on a 7480).
+- **Firmware:** `00412015` (4.12.015) is known to enroll. Older factory
+  firmware (seen: `00412001` on a 7490, `00047026` on a 7480) rejected every
+  enrollment commit with status `0x24` when the commit's attribute and
+  authorization blocks were empty, as Dell's Linux driver sends them. The
+  open driver now sends the blocks Dell's Windows driver uses, which others
+  report makes old firmware enroll. That is **untested** here, since both
+  test machines are updated; if you have old firmware, please help test
+  ([request](https://github.com/grosa787/dell-controlvault2-fingerprint-linux/issues/3)).
+  The driver tries to enroll on any firmware and, on `0x24`, points to the
+  update:
   - 4.12.015 ships only in Dell's *ControlVault2 Driver and Firmware*
     **4.12.11.15, A25** (driver ID NX3HH,
     [download](https://www.dell.com/support/home/en-us/drivers/driversdetails?driverid=nx3hh)).
     Dell lists it for some Rugged models only, but it flashed fine on a 7490
     and a 7480.
   - Dell's catalog shows 43NG7 (4.12.5.8, A21) as newest for the 7480, but it
-    contains 4.12.001, which still fails.
+    contains 4.12.001.
   - It installs from Windows; a VM works. Pass the reader through by **USB
     port**, not vendor/product ID: during the flash it re-enumerates twice as
     `0a5c:5831`.
 - **After a suspend** the reader can enter a state where enrollment never
   finishes and nothing matches, with any driver. Command `0x82`, which Dell's
   Windows driver sends, restores it. The open driver sends it at every open.
+- **Enrollment** sends `0x8a` (begin enrollment) before every capture, as
+  Dell's Windows driver does; it completes in about 4 presses on 4.12.015.
 - **No biometric data crosses USB.** Matching happens on the chip; the largest
   message in the captures is the 848-byte firmware version text.
 
@@ -50,7 +61,11 @@ the probe and development tools, and the design and implementation notes.
 
 Everything here comes from USB captures of the author's own machine, of the
 vendor's Linux driver and Dell's Windows driver, and from single-command
-probes. No vendor code, headers or binaries were used. Windows captures are
+probes. No vendor code, headers or binaries were used. The commit and delete
+blocks were captured from Dell's Linux driver as patched by
+[grosa787/dell-controlvault2-fingerprint-linux#13](https://github.com/grosa787/dell-controlvault2-fingerprint-linux/pull/13)
+to send the values Dell's Windows driver uses (Windows sends them inside its
+protected session). Windows captures are
 not included, because they contain Dell's firmware.
 
 Much of this work, including the protocol analysis, the driver, its tests and
