@@ -47,14 +47,18 @@ meson test -C build cv2-proto cv2 cv2-cancel cv2-retries
 
 ## Hardware work
 
-All of it needs root, through `pkexec`; Matt approves each prompt. Fingerprint is enabled in PAM, so touching the reader works for approval.
+All of it needs root, through `pkexec`; Matt approves each prompt. Fingerprint is enabled in PAM, so the reader works for approval: press Enter on the empty password field, then touch it (see the PAM note below).
 
 - `devtools/run-dev.sh <action>`: runs the build-tree driver with fprintd masked. Actions: `info`, `enroll <finger>`, `verify <finger>`, `identify`, `delete <finger>`, `verify-bogus`, `cancel-enroll`. It sends desktop notifications, since Matt can't see the terminal while pressing fingers. Batch several actions into one `pkexec bash -c` and tell him the press order beforehand.
 - `devtools/record-tests.sh [cv2|cancel|retries]`: re-records the umockdev tests. Needed whenever the driver's USB traffic changes, for example the open sequence.
 - `devtools/install-dev.sh` / `uninstall-dev.sh`: install the build to `/usr/local` for fprintd (drop-in `LD_LIBRARY_PATH`), or revert.
 - `run-cvtool.sh <action>`: the raw protocol probe (`cvtool.py`, allow-listed commands only).
 - `fprintd-verify` with no `-f` checks only the first enrolled finger. Use `-f any` to test the identify path the lock screen uses.
-- The Plasma Login greeter at boot is password-only by design (its PAM file uses `password-auth`). The lock screen and sudo use fingerprint.
+- PAM on this laptop is password-first everywhere except the lock screen: a typed password is accepted at once, and Enter on an empty field falls through to the reader. Background: `pam_fprintd` before `pam_unix` makes a typed password wait for the fprintd timeout (30 s), because a PAM stack runs one module at a time.
+  - Boot greeter: `/etc/pam.d/plasmalogin` overrides the packaged `/usr/lib/pam.d/plasmalogin`. It replaces `auth substack password-auth` with `pam_env`, `pam_faildelay`, `[success=1 default=ignore] pam_unix.so nullok`, `requisite pam_fprintd.so`, `required pam_permit.so`. The final `pam_permit` is required: a jump records no result in the auth stack, so without it a correct password gets `PAM_PERM_DENIED`. The KWallet password is blank so a fingerprint login doesn't prompt for it.
+  - sudo, polkit, pkexec: authselect profile `custom/pwfirst`, a copy of `local` with the `pam_fprintd` line moved below `pam_unix` (both `sufficient`). Undo: `authselect select local with-fingerprint with-silent-lastlog with-mdns4`.
+  - Lock screen: unchanged. KDE runs the `kde` and `kde-fingerprint` stacks in parallel, so password and finger both work at any time.
+- `devtools/pamtest.py SERVICE ask|empty|wrong`: runs a PAM service's auth stack as the current user, answering every password prompt like a greeter would, with timestamps. Use it to check a PAM change before logging out. `ask` reads the password with getpass.
 - Windows VM `win11` (`virsh -c qemu:///system`) has the reader passed through. Starting it takes the reader away from Linux.
 
 ## Hard-won protocol facts
