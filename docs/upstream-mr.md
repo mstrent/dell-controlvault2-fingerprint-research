@@ -1,9 +1,10 @@
 # cv2: Add Broadcom ControlVault2 (BCM5880, 0a5c:5834) driver
 
 Match-on-chip driver for the fingerprint function of the Dell ControlVault2
-reader (Broadcom BCM5880, USB `0a5c:5834`), found in the Dell Latitude 7490
-and other Latitude/Precision models of that generation. Until now this reader
-only worked through a proprietary libfprint-tod module.
+reader (Broadcom BCM5880, USB `0a5c:5834`), as found in the Dell Latitude
+7490 (the only machine tested; other Dell models with this USB ID should
+behave the same). Until now this reader only worked through a proprietary
+libfprint-tod module.
 
 **Features:** enroll, verify, identify, delete. Prints store the chip's
 32-bit template handle (`"(u)"`); the chip can't list its templates, so there
