@@ -18,6 +18,8 @@ the device is never reset.
 binaries). The full write-up is below; the unit-test fixtures are bytes copied
 from those captures, and `tests/cv2*/custom.pcapng` are complete captures of
 the driver talking to the reader.
+Research notes, all the raw captures, the probe tool and the design notes
+are public at <this repository's GitHub URL> (CC0).
 
 ### Behaviour worth knowing
 
