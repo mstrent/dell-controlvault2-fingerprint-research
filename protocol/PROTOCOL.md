@@ -176,6 +176,13 @@ wait for interrupt type 3
   its handle, left index → its handle, thumb → no match (`../cvtool.log`).
 - Skipping the post-match `0x66` (mode `0x48`) call caused no problems in
   those tests.
+- **Deleted handles:** if any handle in the list is not on the chip, `0x2f`
+  fails with `0x1b` for the whole list. The capture stays usable: sending
+  `0x2f` again on the same capture (no new `0x66`) with only valid handles
+  matches normally, and can be repeated. `0x2f` with no capture pending
+  returns `0x89` for valid and deleted handles alike, so there is no way to
+  check for a handle without a capture (tested 2026-10-02,
+  `cvtool.py stale-probe`).
 
 ### Delete
 

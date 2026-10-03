@@ -215,6 +215,31 @@ def do_match(cv, handles, presses):
         cv.close()
 
 
+def do_stale_probe(cv, handles):
+    """handles: valid,stale. Can a match without a capture test existence,
+    and can one capture be matched again after a 0x1b?"""
+    valid, stale = handles[0], handles[1]
+    cv.open()
+    try:
+        log('\n== match with no capture pending (existence probe) ==')
+        cv.cancel()
+        for h in (valid, stale):
+            st, ok, which = cv.match([h])
+            log('   0x%08x -> status 0x%x%s' % (h, st, '' if st else ' match=%d' % ok))
+        log('\n== one capture, mixed list, then the valid handle alone ==')
+        cv.capture_start()
+        print('   touch the sensor with the VALID finger...', flush=True)
+        if not cv.wait_finger():
+            log('   no finger within 60 s'); return
+        for lst in ([valid, stale], [valid], [valid]):
+            st, ok, which = cv.match(lst)
+            log('   %s -> status 0x%x%s' % (', '.join('0x%08x' % h for h in lst), st,
+                '' if st else ' match=%d handle=0x%08x' % (ok, which)))
+    finally:
+        cv.cancel()
+        cv.close()
+
+
 def do_delete(cv, handles):
     cv.open()
     try:
@@ -309,7 +334,7 @@ def do_version(cv, flags):
 def main():
     global LOG
     ap = argparse.ArgumentParser()
-    ap.add_argument('action', choices=['commit-noenroll', 'enroll', 'match', 'delete', 'version'])
+    ap.add_argument('action', choices=['commit-noenroll', 'enroll', 'match', 'delete', 'version', 'stale-probe'])
     ap.add_argument('--commit', action='append', help='p3..p5 spec, e.g. "2:0 2:0 3:4096"')
     ap.add_argument('--max-presses', type=int, default=30)
     ap.add_argument('--handles', default='', help='comma-separated template handles (hex)')
@@ -325,6 +350,8 @@ def main():
         handles = [int(h, 16) for h in a.handles.split(',') if h]
         if a.action == 'version':
             do_version(cv, int(a.flags, 16))
+        elif a.action == 'stale-probe':
+            do_stale_probe(cv, handles)
         elif a.action == 'match':
             do_match(cv, handles, a.presses)
         elif a.action == 'delete':
