@@ -88,6 +88,9 @@ may push to it). `glab` is installed and logged in with your account on
 gitlab.freedesktop.org; the fork remote in `~/projects/libfprint` is `fork`.
 Links posted on grosa787/dell-controlvault2-fingerprint-linux PR #13 and
 issue #3. Next: respond to review; CI may need a maintainer to start it.
+Independent test: Latitude 7480 by a tester on the GitHub issue (all operations
+pass; offered to test further revisions). Firmware package facts are in the
+MR comments and README.
 After it lands, the wiki's Unsupported-Devices entry for `0a5c:5834` must be
 removed (noted in the MR).
 

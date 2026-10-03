@@ -35,7 +35,14 @@ reply is 848 bytes, several USB packets). Relevant keys:
 | Key | Observed values |
 |---|---|
 | `USH_CHIPID` | `05810211` |
-| `USH_REL_UPGRADE_VER` | `00412001` (factory): enroll commit fails with `0x24` · `00412015`: enroll works |
+| `USH_REL_UPGRADE_VER` | `00047026` (4.7.26, 2017; factory on a Latitude 7480, reported by a tester) and `00412001` (factory on this 7490): enroll commit fails with `0x24` · `00412015`: enroll works |
+
+`00412015` (4.12.015) ships only in Dell's *ControlVault2 Driver and
+Firmware* package 4.12.11.15 (A25, driver ID NX3HH). The package Dell lists as
+newest for the 7480, 43NG7 (4.12.5.8, A21), contains 4.12.001. Between the
+two packages only `bcmLynx_1.otp` and `bcmLynx_7.otp` differ. While
+flashing, the chip re-enumerates twice as `0a5c:5831`, so a VM should get the
+reader by USB port, not by vendor/product ID (reported on the 7480).
 
 A driver should read this at open and refuse to enroll on firmware older than
 `00412015`, with a message explaining that the update comes from Dell's

@@ -47,7 +47,7 @@ bytes, several USB packets). Relevant keys:
 | Key | Observed values |
 |---|---|
 | `USH_CHIPID` | `05810211` |
-| `USH_REL_UPGRADE_VER` | `00412001` (factory): enrollment commit fails with `0x24` (13 samples, then rejected) · `00412015` (Dell's ControlVault2 package): enrollment works |
+| `USH_REL_UPGRADE_VER` | `00047026` (4.7.26, 2017; factory on a Latitude 7480) and `00412001` (4.12.001; factory on a 7490, also in Dell package 4.12.5.8): enrollment commit fails with `0x24` · `00412015` (4.12.015, Dell package 4.12.11.15): enrollment works |
 
 The driver reads this at open and refuses to enroll on firmware older than
 `00412015`, with a message pointing to Dell's ControlVault2 firmware package.

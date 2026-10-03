@@ -2,8 +2,8 @@
 
 Match-on-chip driver for the fingerprint function of the Dell ControlVault2
 reader (Broadcom BCM5880, USB `0a5c:5834`), as found in the Dell Latitude
-7490 (the only machine tested; other Dell models with this USB ID should
-behave the same). Until now this reader only worked through a proprietary
+7490 and Latitude 7480 (both tested; other Dell models with this USB ID
+should behave the same). Until now this reader only worked through a proprietary
 libfprint-tod module.
 
 **Features:** enroll, verify, identify, delete. Prints store the chip's
@@ -19,15 +19,23 @@ binaries). The full write-up is below; the unit-test fixtures are bytes copied
 from those captures, and `tests/cv2*/custom.pcapng` are complete captures of
 the driver talking to the reader.
 Research notes, all the raw captures, the probe tool and the design notes
-are public at <this repository's GitHub URL> (CC0).
+are public at <this repository's GitHub URL>
+(CC0).
 
 ### Behavior worth knowing
 
-- **Firmware:** enrollment needs ControlVault2 firmware `00412015` or newer
-  (Dell's ControlVault2 package). On the factory `00412001` the chip rejects
-  every enrollment commit, so the driver reads the version at open (`0x39`)
-  and refuses to enroll with an error that says so. Verify, identify and
-  delete still work. **Testers with older firmware are welcome.**
+- **Firmware:** enrollment needs ControlVault2 firmware `00412015`
+  (4.12.015) or newer. Factory firmware rejects every enrollment commit
+  (seen: `00412001` on a 7490, `00047026` on a 7480), so the driver reads
+  the version at open (`0x39`), logs whether enrollment will work, and
+  refuses to enroll with an error naming the firmware and package needed.
+  Verify, identify and delete still work on old firmware.
+  4.12.015 ships only in Dell's *ControlVault2 Driver and Firmware* package
+  **4.12.11.15**; older packages, including the one Dell's catalog lists as
+  newest for some models (4.12.5.8), still contain 4.12.001. The package
+  installs from Windows (a VM works; pass the reader through by USB port,
+  since it re-enumerates as `0a5c:5831` while flashing). Download details
+  are in the comments below.
 - **Sensor reset at open:** after a suspend the reader was seen to enter a
   state where enrollment never finished and nothing matched, with any Linux
   driver. Command `0x82`, which Dell's Windows driver sends before each
@@ -59,9 +67,17 @@ are public at <this repository's GitHub URL> (CC0).
   enrollment. Runs serially: it cancels a pending interrupt read, and the
   replay could stall under parallel load.
 
-Tested on hardware: Dell Latitude 7490, Fedora 44, fprintd 1.94.5, firmware
-`00412015`: enroll, verify, identify, delete, sudo, lock screen, reboot,
-suspend during verify, Ctrl-C during enroll and verify.
+Tested on hardware:
+- Dell Latitude 7490, Fedora 44, fprintd 1.94.5, firmware `00412015`:
+  enroll, verify, identify, delete, sudo, lock screen, reboot, suspend during
+  verify, Ctrl-C during enroll and verify.
+- Dell Latitude 7480, Zorin OS 18.1 (Ubuntu 24.04), firmware `00412015`
+  (flashed from `00047026`), tested independently by a user of the reader
+  ([report](https://github.com/grosa787/dell-controlvault2-fingerprint-linux/issues/3#issuecomment-5971060113)):
+  open with `0x82` reset, enroll, verify match/no-match, too-brief touch
+  retry, identify, delete, verify against a deleted print
+  (`DATA_NOT_FOUND`), and coexistence with a template enrolled earlier by
+  the vendor driver.
 
 ### Housekeeping
 
@@ -130,7 +146,7 @@ bytes, several USB packets). Relevant keys:
 | Key | Observed values |
 |---|---|
 | `USH_CHIPID` | `05810211` |
-| `USH_REL_UPGRADE_VER` | `00412001` (factory): enrollment commit fails with `0x24` (13 samples, then rejected) · `00412015` (Dell's ControlVault2 package): enrollment works |
+| `USH_REL_UPGRADE_VER` | `00047026` (4.7.26, 2017; factory on a Latitude 7480) and `00412001` (4.12.001; factory on a 7490, also in Dell package 4.12.5.8): enrollment commit fails with `0x24` · `00412015` (4.12.015, Dell package 4.12.11.15): enrollment works |
 
 The driver reads this at open and refuses to enroll on firmware older than
 `00412015`, with a message pointing to Dell's ControlVault2 firmware package.

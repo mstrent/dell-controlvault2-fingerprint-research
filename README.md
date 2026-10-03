@@ -2,8 +2,8 @@
 
 Research behind an open-source [libfprint](https://gitlab.freedesktop.org/libfprint/libfprint)
 driver for the fingerprint function of the **Dell ControlVault2** reader
-(Broadcom BCM5880, USB `0a5c:5834`), as found in the Dell Latitude 7490 (the
-only machine tested).
+(Broadcom BCM5880, USB `0a5c:5834`), as found in the Dell Latitude 7490 and
+7480 (both tested).
 
 **The driver itself is under review upstream:**
 https://gitlab.freedesktop.org/libfprint/libfprint/-/merge_requests/672
@@ -27,11 +27,19 @@ the probe and development tools, and the design and implementation notes.
 
 ## Things worth knowing
 
-- **Firmware:** enrollment needs ControlVault2 firmware `00412015` or newer.
-  Factory firmware (`00412001`) rejects every enrollment commit with status
-  `0x24`. Dell's ControlVault2 driver/firmware package (for example
-  [this one](https://www.dell.com/support/home/en-us/drivers/driversdetails?driverid=nx3hh))
-  updates it from Windows. A Windows VM with the reader passed through worked.
+- **Firmware:** enrollment needs ControlVault2 firmware `00412015` (4.12.015)
+  or newer. Factory firmware rejects every enrollment commit with status
+  `0x24` (seen: `00412001` on a 7490, `00047026` on a 7480).
+  - 4.12.015 ships only in Dell's *ControlVault2 Driver and Firmware*
+    **4.12.11.15, A25** (driver ID NX3HH,
+    [download](https://www.dell.com/support/home/en-us/drivers/driversdetails?driverid=nx3hh)).
+    Dell lists it for some Rugged models only, but it flashed fine on a 7490
+    and a 7480.
+  - Dell's catalog shows 43NG7 (4.12.5.8, A21) as newest for the 7480, but it
+    contains 4.12.001, which still fails.
+  - It installs from Windows; a VM works. Pass the reader through by **USB
+    port**, not vendor/product ID: during the flash it re-enumerates twice as
+    `0a5c:5831`.
 - **After a suspend** the reader can enter a state where enrollment never
   finishes and nothing matches, with any driver. Command `0x82`, which Dell's
   Windows driver sends, restores it. The open driver sends it at every open.
