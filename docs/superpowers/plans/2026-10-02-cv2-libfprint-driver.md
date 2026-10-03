@@ -4,7 +4,7 @@
 
 **Goal:** An upstreamable libfprint match-on-chip driver (`cv2`) for the Dell ControlVault2 / Broadcom BCM5880 reader (USB `0a5c:5834`) that enrolls, verifies, identifies and deletes fingerprints, with unit and umockdev tests.
 
-**Architecture:** A GLib-level protocol layer (`cv2-proto.c`: request builders, reply parser, status/firmware tables, small pure helpers) is unit-tested against bytes copied from USB captures. A device layer (`cv2.c`: `FpiDeviceCv2`) runs one `FpiSsm` per operation on top of a small command transport (bulk OUT → interrupt "reply ready" → bulk IN), with a shared capture sub-SSM and a cleanup SSM that always leaves the chip idle. Device-layer behaviour is verified on the real reader with a dev script, then frozen into umockdev recordings.
+**Architecture:** A GLib-level protocol layer (`cv2-proto.c`: request builders, reply parser, status/firmware tables, small pure helpers) is unit-tested against bytes copied from USB captures. A device layer (`cv2.c`: `FpiDeviceCv2`) runs one `FpiSsm` per operation on top of a small command transport (bulk OUT → interrupt "reply ready" → bulk IN), with a shared capture sub-SSM and a cleanup SSM that always leaves the chip idle. Device-layer behavior is verified on the real reader with a dev script, then frozen into umockdev recordings.
 
 **Tech Stack:** C (GLib 2.68 API, GObject, GUsb via libfprint's `FpiUsbTransfer`), meson, GLib test framework, Python + PyGObject (`FPrint` typelib) for umockdev tests and the dev script, umockdev, tshark.
 
@@ -35,7 +35,7 @@ Captures examined while planning showed details the spec didn't capture. Task 1 
 1. **Bulk IN buffer.** The stock driver reads replies with a 4196-byte buffer. The commit reply's interrupt announced 65 bytes and 65 arrived, but the header says 64. Rule: read up to `CV2_REPLY_BUF_LEN` (4196); the header's total length must be ≤ bytes read; trailing bytes are ignored.
 2. **Version text** is newline-separated `KEY:VALUE` lines in a kind-1 string parameter (not space-separated). Real reply: 848 bytes (multi-packet).
 3. **No finger-lift wait.** The stock driver sends the next `0x66` immediately after each `0x6c`; the chip produces one `type 3` event per press.
-4. **Cancellation between commands.** Command transfers are never cancelled mid-flight (that would leave an unread reply and desynchronise the next command). The transport checks for cancellation before sending each command; only the finger wait uses the cancellable.
+4. **Cancellation between commands.** Command transfers are never cancelled mid-flight (that would leave an unread reply and desynchronize the next command). The transport checks for cancellation before sending each command; only the finger wait uses the cancellable.
 5. **Cleanup always sends `0x68`** when a session is open (a `0x68` with nothing pending returns status 0, `cvtool.log`), so there is no `capture_pending` flag.
 6. **Stale replies.** If a reply's command ID doesn't match the request, the transport discards it and waits for the next one (at most 2 times) before failing with a protocol error. A reply can be left over after a timeout or a killed client.
 7. **Finger status.** `NEEDED` while waiting, `PRESENT` on the finger event, `NONE` after the sample/match reply and at operation end.
@@ -47,7 +47,7 @@ Captures examined while planning showed details the spec didn't capture. Task 1 
 
 Inputs the spec implies but that the main tests may not exercise, most likely first. Each has a test or check in the owning task.
 
-1. **A reply left over from a previous client or a timed-out command** → the transport must resynchronise, not fail every later command. Pinned by `test_peek_cmd` (Task 4) plus Task 10's check that the recording includes the `0x85` retry, and the Task 7 hardware step that kills the dev script mid-enroll and runs again.
+1. **A reply left over from a previous client or a timed-out command** → the transport must resynchronize, not fail every later command. Pinned by `test_peek_cmd` (Task 4) plus Task 10's check that the recording includes the `0x85` retry, and the Task 7 hardware step that kills the dev script mid-enroll and runs again.
 2. **Prints whose data isn't ours** (empty template, a print restored from the TOD driver's storage) → `FP_DEVICE_ERROR_DATA_INVALID` without touching the reader. Pinned in `tests/cv2/custom.py` (Task 10) and the Task 8 hardware step.
 3. **A firmware that needs more than 4 accepted samples** (old firmware needed 13) → progress stays at stage 3 until the done flag, then 4; no assertion or overflow. Pinned by `test_enroll_next_stage` (Task 5).
 4. **The chip reports a match for a handle the host didn't send** → protocol error, never a match on the wrong print. Pinned by `test_template_index` (Task 5).
@@ -152,7 +152,7 @@ conflict, this section wins.
    doesn't wait and the chip raises one finger event per press.
 4. Command transfers are not cancelled mid-flight. The transport checks for
    cancellation before sending each command; only the finger wait uses the
-   cancellable. This prevents an unread reply from desynchronising the next
+   cancellable. This prevents an unread reply from desynchronizing the next
    command.
 5. Cleanup always sends `0x68` when a session is open (it returns 0 with
    nothing pending), so there is no `capture_pending` flag.
@@ -3327,7 +3327,7 @@ scripts/uncrustify.sh && git diff --quiet || git commit -a --amend --no-edit
 
 ---
 
-### Task 9: Delete, and stale-handle behaviour
+### Task 9: Delete, and stale-handle behavior
 
 **Files:**
 - Modify: `libfprint/drivers/cv2/cv2.c`
@@ -3441,14 +3441,14 @@ Then, each with `pkexec bash ~/projects/cv2-research/devtools/run-dev.sh …`:
 4. `delete left-index` → `DELETED left-index`.
 5. `rm ~/projects/cv2-research/devtools/prints/stale.print`.
 
-- [ ] **Step 4: Record the stale-handle behaviour in PROTOCOL.md (research repo)**
+- [ ] **Step 4: Record the stale-handle behavior in PROTOCOL.md (research repo)**
 
 In `protocol/PROTOCOL.md`, move open question 3 into the *Verify* and *Delete* sections as observed facts, e.g. "`0x2f` with a deleted handle: status 0, result 0 (no match)" and "`0x0a` with a deleted handle: status 0x…". Commit:
 
 ```bash
 cd ~/projects/cv2-research
 git add protocol/PROTOCOL.md cvtool.log
-git commit -m "PROTOCOL: behaviour of match and delete with a deleted handle
+git commit -m "PROTOCOL: behavior of match and delete with a deleted handle
 
 Co-Authored-By: Claude <noreply@anthropic.com>"
 ```
@@ -3732,7 +3732,7 @@ In `tests/meson.build`, add to `drivers_tests` after `'secugen': {},`:
 - [ ] **Step 6: Run the replays**
 
 Run: `meson test -C build cv2 cv2-cancel --print-errorlogs`
-Expected: both OK. If a replay fails with a USB mismatch, compare the replay log's last transfers with the recording; the usual cause is a code path that differs between recording and replay (for example timing-dependent behaviour), which must be fixed in the driver, not in the recording.
+Expected: both OK. If a replay fails with a USB mismatch, compare the replay log's last transfers with the recording; the usual cause is a code path that differs between recording and replay (for example timing-dependent behavior), which must be fixed in the driver, not in the recording.
 
 - [ ] **Step 7: Run the full test suite**
 

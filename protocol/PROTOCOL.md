@@ -6,7 +6,7 @@ Status: **draft**. Covers the plaintext host interface the fingerprint function 
 
 Everything here comes from **USB traffic captures** (Linux `usbmon`) of the
 reader on a Dell Latitude 7490 owned by the author, while it was driven by
-fprintd. Command names describe the **observed behaviour**; they are not taken
+fprintd. Command names describe the **observed behavior**; they are not taken
 from vendor headers or binaries. Facts not yet observed are listed under
 [Open questions](#open-questions) rather than guessed.
 
@@ -97,12 +97,12 @@ with status `0x0d`.
 
 ## Commands
 
-| ID | Name (behavioural) | Header handle | Request params | Reply params (on success) |
+| ID | Name (behavioral) | Header handle | Request params | Reply params (on success) |
 |---|---|---|---|---|
 | `0x02` | open session | 0 | `0:4 = 0x44`, `1:7 "myAppID\0"`, `1:8 "myUserID"`, `1:0` | `0:4` session handle (also in header +0x10) |
 | `0x04` | close session | 0 | `0:4` session handle | — |
 | `0x39` | get version | 0 | — | `1:n` version text (see [Firmware](#firmware-requirement)). Plaintext request: flags `0x0440`, header handle 0, param `0:4 = 0` (tested 2026-10-02 with `cvtool.py version`). The Windows driver sends flags `0x0040` |
-| `0x82` | sensor reset (behavioural name) | 0 | `0:4 = 0`, flags `0x0040` | — (status 0 after ~0.7 s). Sent by the Windows driver before each enrollment; see [Degraded state](#degraded-state-after-suspend) |
+| `0x82` | sensor reset (behavioral name) | 0 | `0:4 = 0`, flags `0x0040` | — (status 0 after ~0.7 s). Sent by the Windows driver before each enrollment; see [Degraded state](#degraded-state-after-suspend) |
 | `0x8a` | begin enrollment | 0 | `0:4 = 0` | — |
 | `0x66` | capture start | session | `0:4` handle, `0:4 = 2`, `0:4` mode: `0x23` before every sample (enroll and verify); `0x48` only directly after a `0x2f`, see [Verify](#verify) | `0:20` capture ID |
 | `0x68` | capture cancel | 0 | `0:4 = 0` | — |
@@ -208,7 +208,7 @@ finishing, with a repeating "3 accepted, 1 rejected `0x59`" pattern),
 half-covered presses were accepted, and verify never matched, including with
 the stock Linux driver. Reboot, a power-button drain with AC unplugged,
 `0x68`/`0x6d` and wiping the sensor did not help; Windows Hello still worked.
-Sending `0x82` once (as the Windows driver does) restored normal behaviour:
+Sending `0x82` once (as the Windows driver does) restored normal behavior:
 4-sample enrollment and matching. A second `0x82` kept stored templates
 (verify still matched). The open driver sends `0x82` at device open.
 
@@ -241,7 +241,7 @@ handles; delete command.
 
 Still open:
 
-1. Listing templates stored on the chip; slot limit; behaviour when full.
+1. Listing templates stored on the chip; slot limit; behavior when full.
 2. Purpose of the `0x66` mode `0x48` call after a match, and of the `0x2f`
    constants `0x48` and `0x53e2`.
 4. Meaning of the `0x02` open parameters (`0x44`, app/user strings) and of

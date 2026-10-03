@@ -21,7 +21,7 @@ the driver talking to the reader.
 Research notes, all the raw captures, the probe tool and the design notes
 are public at <this repository's GitHub URL> (CC0).
 
-### Behaviour worth knowing
+### Behavior worth knowing
 
 - **Firmware:** enrollment needs ControlVault2 firmware `00412015` or newer
   (Dell's ControlVault2 package). On the factory `00412001` the chip rejects
@@ -75,7 +75,7 @@ page also needs removing, or the next `sync-udev-hwdb` will add it back.
 
 This driver was written with the help of Claude (Anthropic), working with me:
 protocol analysis of my captures, the driver code and tests. Every protocol
-claim comes from captures of my own hardware, and every behaviour above was
+claim comes from captures of my own hardware, and every behavior above was
 checked on the reader. The commits carry a `Co-Authored-By` trailer. Happy to
 answer questions or rework anything.
 
@@ -97,11 +97,11 @@ reader in a Dell Latitude 7490 owned by the author:
   enrollment, Windows Hello login. Windows uses a protected (encrypted)
   session; only its plaintext commands are used here;
 - a small probe tool (Python, pyusb) that sends the commands seen in those
-  captures, to test single behaviours (identify with several handles,
+  captures, to test single behaviors (identify with several handles,
   deleted handles, brief touches, the version query, `0x82`).
 
 No vendor code, headers or binaries were used. Command names describe the
-**observed behaviour**. Facts not yet observed are listed under
+**observed behavior**. Facts not yet observed are listed under
 [Open questions](#open-questions) rather than guessed.
 
 The merge request carries the evidence with it: the request and reply
@@ -195,7 +195,7 @@ is rejected with status `0x0d`.
 
 #### Commands
 
-| ID | Name (behavioural) | Header handle | Request parameters | Reply parameters (on success) |
+| ID | Name (behavioral) | Header handle | Request parameters | Reply parameters (on success) |
 |---|---|---|---|---|
 | `0x02` | open session | 0 | `0:4 = 0x44`, `1:7 "myAppID\0"`, `1:8 "myUserID"`, `1:0` | `0:4` session handle (also in header +0x10) |
 | `0x04` | close session | 0 | `0:4` session handle | — |
@@ -302,7 +302,7 @@ driver too. A reboot, a power-button drain with AC unplugged, `0x68`/`0x6d`
 and cleaning the sensor did not help; Windows Hello still worked.
 
 Sending `0x82` once, as the Windows driver does before each enrollment,
-restored normal behaviour (4-sample enrollment, matching). A second `0x82`
+restored normal behavior (4-sample enrollment, matching). A second `0x82`
 kept stored templates. The driver sends `0x82` at every open (about 0.7 s).
 
 #### Status codes
@@ -329,13 +329,13 @@ session instead, which is out of scope.
 
 #### Open questions
 
-1. Listing templates stored on the chip; slot limit; behaviour when full.
+1. Listing templates stored on the chip; slot limit; behavior when full.
 2. Exact meaning of `0x82`, and whether it is needed at every open or only
    after power events (it is cheap enough to send every time).
 3. Meaning of the `0x2f` constants `0x48`/`0x53e2`, of the `0x02` open
    parameters (`0x44`, app/user strings), of `0x66` parameter 2 (`2`), and of
    mode `0x48`.
 4. Other finger-event lengths besides 0 and 7.
-5. Behaviour on firmware other than `00412001` and `00412015`.
+5. Behavior on firmware other than `00412001` and `00412015`.
 
 </details>

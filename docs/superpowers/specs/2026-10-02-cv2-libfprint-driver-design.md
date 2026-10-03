@@ -142,7 +142,7 @@ One table in `cv2-proto.c`, keyed by command and status:
 | `0x66` | `0x85` | `0x68` cancel, retry once; second `0x85` → `FP_DEVICE_ERROR_BUSY` |
 | `0x2f` | `0x47` | no match (only seen with an empty list, which is not sent) |
 | `0x6e` | `0x24` | `FP_DEVICE_ERROR_NOT_SUPPORTED`, firmware-update message |
-| `0x0a` | nonzero | `FP_DEVICE_ERROR_GENERAL` with the status in the message (refine once stale-handle behaviour is known) |
+| `0x0a` | nonzero | `FP_DEVICE_ERROR_GENERAL` with the status in the message (refine once stale-handle behavior is known) |
 | any | other nonzero | `FP_DEVICE_ERROR_PROTO` with command and status in the message |
 
 ### Reply validation
@@ -235,7 +235,7 @@ First remove the patched TOD driver and the fprintd debug drop-in.
 
 ### Not testable on this machine
 
-Old-firmware behaviour (version gate, `0x24` mapping) is covered by unit tests
+Old-firmware behavior (version gate, `0x24` mapping) is covered by unit tests
 only. The upstream merge request asks owners of old firmware to test. Device
 removal (internal reader) is covered by unit tests only.
 
@@ -248,7 +248,7 @@ removal (internal reader) is covered by unit tests only.
    `protocol/captures/04-enroll-left.pcap` (`cvdump.py` does not decode
    endpoint `0x85`). If the chip needs a lift, add a finger-removed wait and
    `FP_FINGER_STATUS_NONE` reporting between samples.
-3. **Stale handles:** behaviour of `0x2f` / `0x0a` with a deleted handle is
+3. **Stale handles:** behavior of `0x2f` / `0x0a` with a deleted handle is
    unknown (`PROTOCOL.md` open question 3); the error mapping is provisional.
 4. **Build dependencies** are not installed yet (meson, gcc, glib2-devel,
    libgusb-devel, gobject-introspection-devel, umockdev-devel, …).
@@ -266,7 +266,7 @@ conflict, this section wins.
    doesn't wait and the chip raises one finger event per press.
 4. Command transfers are not cancelled mid-flight. The transport checks for
    cancellation before sending each command; only the finger wait uses the
-   cancellable. This prevents an unread reply from desynchronising the next
+   cancellable. This prevents an unread reply from desynchronizing the next
    command.
 5. Cleanup always sends `0x68` when a session is open (it returns 0 with
    nothing pending), so there is no `capture_pending` flag.
