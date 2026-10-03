@@ -1,89 +1,9 @@
-# cv2: Add Broadcom ControlVault2 (BCM5880, 0a5c:5834) driver
-
-Match-on-chip driver for the fingerprint function of the Dell ControlVault2
-reader (Broadcom BCM5880, USB `0a5c:5834`), found in the Dell Latitude 7490
-and other Latitude/Precision models of that generation. Until now this reader
-only worked through a proprietary libfprint-tod module.
-
-**Features:** enroll, verify, identify, delete. Prints store the chip's
-32-bit template handle (`"(u)"`); the chip can't list its templates, so there
-is no list/clear and fprintd's storage is the source of truth. Scan type
-press, 4 enroll stages.
-
-**Scope:** USB interface 0 only; the smart-card interfaces are untouched and
-the device is never reset.
-
-**Protocol:** worked out from USB captures only (no vendor code, headers or
-binaries). The full write-up is below; the unit-test fixtures are bytes copied
-from those captures, and `tests/cv2*/custom.pcapng` are complete captures of
-the driver talking to the reader.
-
-### Behaviour worth knowing
-
-- **Firmware:** enrollment needs ControlVault2 firmware `00412015` or newer
-  (Dell's ControlVault2 package). On the factory `00412001` the chip rejects
-  every enrollment commit, so the driver reads the version at open (`0x39`)
-  and refuses to enroll with an error that says so. Verify, identify and
-  delete still work. **Testers with older firmware are welcome.**
-- **Sensor reset at open:** after a suspend the reader was seen to enter a
-  state where enrollment never finished and nothing matched, with any Linux
-  driver. Command `0x82`, which Dell's Windows driver sends before each
-  enrollment, restores it and keeps stored templates, so the driver sends it at
-  every open. Cost: about 0.7 s per open. Its exact meaning is unknown.
-- **Templates missing from the chip:** if any handle in a match list is not
-  on the chip, the chip fails the whole list (`0x1b`). The driver then matches
-  the prints one at a time on the same capture, skipping missing ones, so one
-  stale print doesn't block the user's other fingers. A single missing print
-  is reported as `DATA_NOT_FOUND`.
-- **Brief touches** (a finger event with a nonzero length) get "please try
-  again"; an enrollment that hasn't finished after 30 accepted samples fails
-  with a message to clean the sensor.
-- **No suspend handler:** libfprint ends an operation running at suspend; the
-  sensor reset at the next open recovers the chip (tested: suspend during
-  verify, then verify).
-- **Security:** templates are matched on the chip and no biometric data
-  crosses USB, but replies on this plaintext interface are not authenticated,
-  as with other match-on-chip drivers.
-
-### Tests
-
-- `cv2-proto`: unit tests for the request builders, reply parser, status
-  mapping, firmware gate and helpers, using captured bytes.
-- `cv2` (umockdev): rejecting a print without template data, enroll, verify
-  match/no-match, identify match/no-match, identify with a print deleted from
-  the chip, verify against a deleted print, delete.
-- `cv2-cancel` (umockdev): cancel during an enrollment, then a full
-  enrollment. Runs serially: it cancels a pending interrupt read, and the
-  replay could stall under parallel load.
-
-Tested on hardware: Dell Latitude 7490, Fedora 44, fprintd 1.94.5, firmware
-`00412015`: enroll, verify, identify, delete, sudo, lock screen, reboot,
-suspend during verify, Ctrl-C during enroll and verify.
-
-### Housekeeping
-
-`0a5c:5834` is removed from the unsupported-device list in
-`libfprint/fprint-list-udev-hwdb.c` and `data/autosuspend.hwdb` is
-regenerated. The entry on the wiki's
-[Unsupported-Devices](https://gitlab.freedesktop.org/libfprint/wiki/-/wikis/Unsupported-Devices)
-page also needs removing, or the next `sync-udev-hwdb` will add it back.
-
-### AI assistance
-
-This driver was written with the help of Claude (Anthropic), working with me:
-protocol analysis of my captures, the driver code and tests. Every protocol
-claim comes from captures of my own hardware, and every behaviour above was
-checked on the reader. The commits carry a `Co-Authored-By` trailer. Happy to
-answer questions or rework anything.
-
-<details>
-<summary><b>Protocol specification</b> (from USB captures)</summary>
-
+# Dell ControlVault2 (Broadcom BCM5880, USB `0a5c:5834`) fingerprint protocol
 
 This describes the plaintext host interface that the `cv2` driver uses for
 the reader's fingerprint function.
 
-#### Provenance
+## Provenance
 
 Everything here comes from **USB traffic captures** (Linux `usbmon`) of the
 reader in a Dell Latitude 7490 owned by the author:
@@ -109,7 +29,7 @@ reader.
 Out of scope: the smart-card (CCID) interfaces, firmware update, and the
 Windows driver's protected session.
 
-#### Device
+## Device
 
 | | |
 |---|---|
@@ -118,7 +38,7 @@ Windows driver's protected session.
 | Interface 0 endpoints | bulk OUT `0x01`, bulk IN `0x81` (64-byte packets), interrupt IN `0x85` |
 | Kernel driver | none; interface 0 is claimed from userspace |
 
-##### Firmware
+### Firmware
 
 Command `0x39` returns the firmware version as newline-separated `KEY:VALUE`
 lines in a kind-1 string parameter (796 bytes on `00412015`; the reply is 848
@@ -133,7 +53,7 @@ The driver reads this at open and refuses to enroll on firmware older than
 `00412015`, with a message pointing to Dell's ControlVault2 firmware package.
 If the version can't be read, status `0x24` at commit gives the same error.
 
-#### Transport
+## Transport
 
 Each command is a request/response exchange on interface 0:
 
@@ -149,11 +69,11 @@ Each command is a request/response exchange on interface 0:
 
 One command is outstanding at a time.
 
-#### Message format
+## Message format
 
 All integers little-endian.
 
-##### Header (0x2c bytes)
+### Header (0x2c bytes)
 
 | Offset | Size | Request | Reply |
 |---|---|---|---|
@@ -171,7 +91,7 @@ Flags: `0x0440` for ordinary commands, `0x0442` for `0x66`, `0x2f` and `0x0a`,
 `0x0040` for `0x82` (as the Windows driver sends it). Replies to failed
 commands are header-only (0x2c bytes).
 
-##### Parameters
+### Parameters
 
 The parameter area is a sequence of:
 
@@ -190,7 +110,7 @@ The open request declares `1:7` for `"myAppID"` but sends the terminating NUL
 too (8 bytes). A request whose declared length doesn't match the bytes sent
 is rejected with status `0x0d`.
 
-#### Commands
+## Commands
 
 | ID | Name (behavioural) | Header handle | Request parameters | Reply parameters (on success) |
 |---|---|---|---|---|
@@ -213,7 +133,7 @@ host with each print; the chip has no observed way to list them. The meaning
 of the `0x2f` constants `0x48` and `0x53e2` is unknown; they were identical in
 every capture.
 
-##### Capture and finger events
+### Capture and finger events
 
 After `0x66` returns a capture ID, the chip sends an interrupt message with
 `type = 3` when a finger touches the sensor. The host then sends the sample
@@ -229,9 +149,9 @@ There is no finger-removed event. The vendor driver starts the next capture
 immediately after each sample; the chip raises one event per touch. An idle
 capture does not time out (no event in 100 s without a touch).
 
-#### Sequences
+## Sequences
 
-##### Enrollment
+### Enrollment
 
 ```
 0x02 open                        → session
@@ -252,7 +172,7 @@ until done flag == 1
 - Abort: `0x68` cancel, `0x6d` discard, `0x04` close (the vendor driver's
   sequence; the driver's cleanup uses the same).
 
-##### Verify and identify
+### Verify and identify
 
 ```
 0x02 open                        → session
@@ -281,7 +201,7 @@ wait for interrupt type 3
   without a capture.
 - With an empty handle list, `0x2f` returns `0x47`.
 
-##### Delete
+### Delete
 
 ```
 0x02 open
@@ -289,7 +209,7 @@ wait for interrupt type 3
 0x04 close
 ```
 
-#### Degraded state after suspend
+## Degraded state after suspend
 
 After a suspend/resume, the reader was seen to enter a state where enrollment
 needed many more accepted samples (10 to 38+, often never finishing, with a
@@ -302,7 +222,7 @@ Sending `0x82` once, as the Windows driver does before each enrollment,
 restored normal behaviour (4-sample enrollment, matching). A second `0x82`
 kept stored templates. The driver sends `0x82` at every open (about 0.7 s).
 
-#### Status codes
+## Status codes
 
 | Code | Seen on | Observed meaning | Driver handling |
 |---|---|---|---|
@@ -316,7 +236,7 @@ kept stored templates. The driver sends `0x82` at every open (about 0.7 s).
 | `0x89` | `0x6c`, `0x2f` | no usable capture (after a brief touch, or with no capture pending) | retry |
 | `0x8d` | `0x6e` | no completed enrollment to commit | protocol error |
 
-#### Security model
+## Security model
 
 Match-on-chip: templates are stored and matched inside the chip, and no
 fingerprint images or templates cross USB. Replies on this plaintext interface
@@ -324,7 +244,7 @@ are not authenticated, so the host trusts the reader's match result, as with
 other match-on-chip drivers in libfprint. The Windows driver uses an encrypted
 session instead, which is out of scope.
 
-#### Open questions
+## Open questions
 
 1. Listing templates stored on the chip; slot limit; behaviour when full.
 2. Exact meaning of `0x82`, and whether it is needed at every open or only
@@ -334,5 +254,3 @@ session instead, which is out of scope.
    mode `0x48`.
 4. Other finger-event lengths besides 0 and 7.
 5. Behaviour on firmware other than `00412001` and `00412015`.
-
-</details>
