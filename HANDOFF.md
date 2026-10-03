@@ -10,21 +10,19 @@ others), submitted **upstream to libfprint**.
 
 ## Current system state (this laptop)
 
-- Fingerprint login **works** through a stopgap: the patched closed Broadcom TOD
-  driver (`prebuilt/libfprint-2-tod-1-broadcom.PATCHED-v2.so`, built by
-  `patch_driver_v2.py`) installed at `/usr/lib64/libfprint-2/tod-1/`, with
-  `libfprint-tod` + `libfprint-tod-selinux` from COPR
-  `grahamwhiteuk/libfprint-tod`. Reinstall: `try-v2.sh` / `install-fedora.sh`.
-  Revert: `uninstall-fedora.sh`. These stopgap files live in
-  `~/projects/cv2-fingerprint` (a clone of myrtree's patch repo).
-- `authselect` feature `with-fingerprint` is enabled (password fallback works).
-- fprintd debug logging drop-in is still installed
-  (`/etc/systemd/system/fprintd.service.d/debug.conf`); remove when done.
-- ControlVault firmware: `USH_REL_UPGRADE_VER 00412015` (updated from
-  `00412001` by Dell's Windows package). Enrollment needs this version.
-- Test templates `0036622f` and `005b831c` were deleted from the chip
-  (`cvtool.log`, 2026-10-02 12:07).
-- Check that a login finger is enrolled: `fprintd-list $USER`.
+- Fingerprint login runs on the **open cv2 driver**: the libfprint build from
+  `~/projects/libfprint` (branch `cv2-driver`) is installed in
+  `/usr/local/lib64`, and fprintd uses it through the drop-in
+  `/etc/systemd/system/fprintd.service.d/cv2-dev.conf`
+  (`LD_LIBRARY_PATH=/usr/local/lib64`). Revert with
+  `pkexec bash devtools/uninstall-dev.sh` (fprintd then uses Fedora's
+  libfprint, which has no driver for this reader).
+- The patched TOD stopgap is uninstalled (Fedora `libfprint`, `fprintd`,
+  `fprintd-pam` reinstalled). Its files remain in `~/projects/cv2-fingerprint`.
+  Note: its `uninstall-fedora.sh` also removes fprintd and fprintd-pam.
+- `authselect` feature `with-fingerprint` is enabled.
+- ControlVault firmware: `USH_REL_UPGRADE_VER 00412015`.
+- Enrolled: right and left index (fprintd storage + chip).
 
 ## Files
 
@@ -80,14 +78,13 @@ git-ignored: it contains the proprietary firmware-update transfer.
 
 ## Where to resume
 
-Design is complete (sections 1–4). The spec is at
-`docs/superpowers/specs/2026-10-02-cv2-libfprint-driver-design.md`. Next:
-written-spec review, then an implementation plan (superpowers writing-plans).
+The driver is implemented on `~/projects/libfprint` branch `cv2-driver`
+(plan: `docs/superpowers/plans/2026-10-02-cv2-libfprint-driver.md`, progress
+ledger under `.superpowers/sdd/`). Next: publish this research repo if wanted,
+fork libfprint on GitLab, push the branch and open the MR using
+`docs/upstream-mr.md`.
 
-Open protocol questions that affect implementation are listed in the spec's
-"Implementation prerequisites and risks" and at the end of
-`protocol/PROTOCOL.md` (notably the plaintext form of the `0x39` version
-query).
-
-Build dependencies are not installed yet (meson, gcc, glib2-devel,
-libgusb-devel, gobject-introspection-devel, umockdev-devel, …).
+Findings from implementation (in `protocol/PROTOCOL.md` and the spec's
+amendments): the chip can enter a degraded state after suspend that `0x82`
+fixes; brief touches give finger events with length 7; deleted handles make
+`0x2f` fail with `0x1b` for the whole list; `0x89` means no capture.
