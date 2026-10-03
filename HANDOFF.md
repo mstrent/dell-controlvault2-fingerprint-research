@@ -87,7 +87,11 @@ https://gitlab.freedesktop.org/libfprint/libfprint/-/merge_requests/672
 may push to it). `glab` is installed and logged in with your account on
 gitlab.freedesktop.org; the fork remote in `~/projects/libfprint` is `fork`.
 Links posted on grosa787/dell-controlvault2-fingerprint-linux PR #13 and
-issue #3. Next: respond to review; CI may need a maintainer to start it.
+issue #3. 2026-10-03: series reworked after a code review (cloud session) and
+force-pushed as badc1603: 13 commits, all authored by Matt; new recording
+`tests/cv2-retries` (short touch, rejected sample, stale print first, every
+print missing). Next: respond to maintainer review; CI may need a maintainer
+to start it.
 Independent test: Latitude 7480 by a tester on the GitHub issue (all operations
 pass; offered to test further revisions). Firmware package facts are in the
 MR comments and README.

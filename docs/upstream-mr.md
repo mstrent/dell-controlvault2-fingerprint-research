@@ -64,8 +64,12 @@ are public at <this repository's GitHub URL>
   match/no-match, identify match/no-match, identify with a print deleted from
   the chip, verify against a deleted print, delete.
 - `cv2-cancel` (umockdev): cancel during an enrollment, then a full
-  enrollment. Runs serially: it cancels a pending interrupt read, and the
-  replay could stall under parallel load.
+  enrollment. Runs serially: it cancels a pending interrupt read, and
+  umockdev's replay can stall on that under load (see the comments).
+- `cv2-retries` (umockdev): a too-brief touch and a chip-rejected sample
+  during enrollment, a too-brief touch during verify, identify with a
+  missing print placed first in the gallery, and identify with every print
+  missing (`DATA_NOT_FOUND`).
 
 Tested on hardware:
 - Dell Latitude 7490, Fedora 44, fprintd 1.94.5, firmware `00412015`:

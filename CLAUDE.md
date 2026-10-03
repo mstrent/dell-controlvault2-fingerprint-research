@@ -39,7 +39,7 @@ Key documents here:
 ```
 meson setup build -Ddoc=false              # once
 meson compile -C build
-meson test -C build cv2-proto cv2 cv2-cancel
+meson test -C build cv2-proto cv2 cv2-cancel cv2-retries
 ```
 
 - Avoid running the full suite casually. Upstream's `egis_etu905` aborts and makes the desktop show crash notifications.
@@ -50,7 +50,7 @@ meson test -C build cv2-proto cv2 cv2-cancel
 All of it needs root, through `pkexec`; Matt approves each prompt. Fingerprint is enabled in PAM, so touching the reader works for approval.
 
 - `devtools/run-dev.sh <action>`: runs the build-tree driver with fprintd masked. Actions: `info`, `enroll <finger>`, `verify <finger>`, `identify`, `delete <finger>`, `verify-bogus`, `cancel-enroll`. It sends desktop notifications, since Matt can't see the terminal while pressing fingers. Batch several actions into one `pkexec bash -c` and tell him the press order beforehand.
-- `devtools/record-tests.sh [cv2|cancel]`: re-records the umockdev tests. Needed whenever the driver's USB traffic changes, for example the open sequence.
+- `devtools/record-tests.sh [cv2|cancel|retries]`: re-records the umockdev tests. Needed whenever the driver's USB traffic changes, for example the open sequence.
 - `devtools/install-dev.sh` / `uninstall-dev.sh`: install the build to `/usr/local` for fprintd (drop-in `LD_LIBRARY_PATH`), or revert.
 - `run-cvtool.sh <action>`: the raw protocol probe (`cvtool.py`, allow-listed commands only).
 - `fprintd-verify` with no `-f` checks only the first enrolled finger. Use `-f any` to test the identify path the lock screen uses.
