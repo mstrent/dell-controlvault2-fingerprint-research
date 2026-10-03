@@ -18,7 +18,6 @@ Key documents here:
 - `docs/superpowers/specs/2026-10-02-cv2-libfprint-driver-design.md`: the design spec. Its "Amendments" section overrides the earlier sections.
 - `docs/superpowers/plans/2026-10-02-cv2-libfprint-driver-execution-log.md`: every ruling, finding and deferred item.
 - `docs/upstream-mr.md`: the MR description as submitted.
-- `github-comment.md`: what was posted on GitHub (grosa787/dell-controlvault2-fingerprint-linux PR #13, issue #3).
 
 ## Upstream
 
@@ -66,9 +65,3 @@ Details are in PROTOCOL.md.
 - `0x85` happens on every new client's first capture. The fix is cancel and retry.
 - Enrollment needs firmware `00412015` or newer (`0x39`, `USH_REL_UPGRADE_VER`).
 - No biometric data crosses USB. The largest message is the 848-byte version text.
-
-## Matt's preferences
-
-- Ask before anything public (MR comments, GitHub posts, pushes to new places); once he says yes, do it.
-- Keep the research repo private. The MR is meant to be self-contained.
-- Explain things plainly. He tests on real hardware and reports results; keep prompts to him short and numbered.

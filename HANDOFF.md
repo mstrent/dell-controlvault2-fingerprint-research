@@ -35,7 +35,6 @@ others), submitted **upstream to libfprint**.
 | `cvtool.py` + `run-cvtool.sh` | Python research tool that drives the chip directly (allow-listed commands only). Actions: `enroll`, `match --handles`, `delete --handles`, `commit-noenroll` |
 | `cvtool.log` | log of every cvtool run, including the identify test |
 | `cvdump.py` | decodes CV traffic from usbmon pcaps |
-| `github-comment.md` | comments already posted on upstream PR #13 / issue #3 |
 | `docs/superpowers/specs/` | driver design spec |
 
 This repo (`~/projects/cv2-research`) holds the research and design. The
