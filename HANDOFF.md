@@ -79,8 +79,8 @@ git-ignored: it contains the proprietary firmware-update transfer.
 ## Where to resume
 
 The driver is implemented on `~/projects/libfprint` branch `cv2-driver`
-(plan: `docs/superpowers/plans/2026-10-02-cv2-libfprint-driver.md`, progress
-ledger under `.superpowers/sdd/`). Next: publish this research repo if wanted,
+(plan: `docs/superpowers/plans/2026-10-02-cv2-libfprint-driver.md`, execution log with every ruling:
+`docs/superpowers/plans/2026-10-02-cv2-libfprint-driver-execution-log.md`). Next: publish this research repo if wanted,
 fork libfprint on GitLab, push the branch and open the MR using
 `docs/upstream-mr.md`.
 
