@@ -1163,3 +1163,87 @@ USH_BUILD_TIME:Aug 18 2025 17:54:40
 << 0x68 status=0x00 (44 bytes)
 >> 0x04 close (56 bytes)
 << 0x04 status=0x00 (44 bytes)
+#### 2026-10-02 21:02:23 --log ~/projects/cv2-research/cvtool.log capture-idle --presses 100
+>> 0x02 open (96 bytes)
+      0000  01 00 00 00 60 00 00 00 02 00 40 04 02 00 00 00  ....`.....@.....
+      0010  00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  ................
+      0020  00 00 00 00 00 00 00 00 34 00 00 00 00 00 00 00  ........4.......
+      0030  04 00 00 00 44 00 00 00 01 00 00 00 07 00 00 00  ....D...........
+      0040  6d 79 41 70 70 49 44 00 01 00 00 00 08 00 00 00  myAppID.........
+      0050  6d 79 55 73 65 72 49 44 01 00 00 00 00 00 00 00  myUserID........
+<< 0x02 status=0x00 (56 bytes)
+      0000  01 00 00 00 38 00 00 00 02 00 40 05 02 00 00 00  ....8.....@.....
+      0010  8c 9c 01 14 00 00 00 00 00 00 00 00 00 00 00 00  ................
+      0020  00 00 00 00 00 00 00 00 0c 00 00 00 00 00 00 00  ................
+      0030  04 00 00 00 8c 9c 01 14                          ........
+   session handle = 0x14019c8c
+>> 0x66 capture_start (80 bytes)
+<< 0x66 status=0x00 (72 bytes)
+
+== capture started; logging interrupts for 100 s (do not touch) ==
+>> 0x68 capture_cancel (56 bytes)
+<< 0x68 status=0x00 (44 bytes)
+>> 0x04 close (56 bytes)
+<< 0x04 status=0x00 (44 bytes)
+#### 2026-10-02 21:04:55 --log ~/projects/cv2-research/cvtool.log capture-idle --presses 60
+>> 0x02 open (96 bytes)
+      0000  01 00 00 00 60 00 00 00 02 00 40 04 02 00 00 00  ....`.....@.....
+      0010  00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  ................
+      0020  00 00 00 00 00 00 00 00 34 00 00 00 00 00 00 00  ........4.......
+      0030  04 00 00 00 44 00 00 00 01 00 00 00 07 00 00 00  ....D...........
+      0040  6d 79 41 70 70 49 44 00 01 00 00 00 08 00 00 00  myAppID.........
+      0050  6d 79 55 73 65 72 49 44 01 00 00 00 00 00 00 00  myUserID........
+<< 0x02 status=0x00 (56 bytes)
+      0000  01 00 00 00 38 00 00 00 02 00 40 05 02 00 00 00  ....8.....@.....
+      0010  8c 9c 01 14 00 00 00 00 00 00 00 00 00 00 00 00  ................
+      0020  00 00 00 00 00 00 00 00 0c 00 00 00 00 00 00 00  ................
+      0030  04 00 00 00 8c 9c 01 14                          ........
+   session handle = 0x14019c8c
+>> 0x66 capture_start (80 bytes)
+<< 0x66 status=0x00 (72 bytes)
+
+== capture started; logging interrupts for 60 s (do not touch) ==
+    18.49 s: interrupt type 3 len 7
+   (no bulk data)
+>> 0x68 capture_cancel (56 bytes)
+<< 0x68 status=0x00 (44 bytes)
+>> 0x66 capture_start (80 bytes)
+<< 0x66 status=0x00 (72 bytes)
+   re-armed
+    23.03 s: interrupt type 3 len 7
+   (no bulk data)
+>> 0x68 capture_cancel (56 bytes)
+<< 0x68 status=0x00 (44 bytes)
+>> 0x66 capture_start (80 bytes)
+<< 0x66 status=0x00 (72 bytes)
+   re-armed
+    28.08 s: interrupt type 3 len 7
+   (no bulk data)
+>> 0x68 capture_cancel (56 bytes)
+<< 0x68 status=0x00 (44 bytes)
+>> 0x66 capture_start (80 bytes)
+<< 0x66 status=0x00 (72 bytes)
+   re-armed
+    34.06 s: interrupt type 3 len 7
+   (no bulk data)
+>> 0x68 capture_cancel (56 bytes)
+<< 0x68 status=0x00 (44 bytes)
+>> 0x66 capture_start (80 bytes)
+<< 0x66 status=0x00 (72 bytes)
+   re-armed
+    38.78 s: interrupt type 3 len 0
+>> 0x68 capture_cancel (56 bytes)
+<< 0x68 status=0x00 (44 bytes)
+>> 0x66 capture_start (80 bytes)
+<< 0x66 status=0x00 (72 bytes)
+   re-armed
+    40.79 s: interrupt type 3 len 0
+>> 0x68 capture_cancel (56 bytes)
+<< 0x68 status=0x00 (44 bytes)
+>> 0x66 capture_start (80 bytes)
+<< 0x66 status=0x00 (72 bytes)
+   re-armed
+>> 0x68 capture_cancel (56 bytes)
+<< 0x68 status=0x00 (44 bytes)
+>> 0x04 close (56 bytes)
+<< 0x04 status=0x00 (44 bytes)

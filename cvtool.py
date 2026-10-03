@@ -240,6 +240,36 @@ def do_stale_probe(cv, handles):
         cv.close()
 
 
+def do_capture_idle(cv, seconds):
+    """Start a capture, touch nothing, and log every interrupt (and any data
+    it announces) to see how the chip ends an unanswered capture."""
+    cv.open()
+    try:
+        cv.capture_start()
+        log('\n== capture started; logging interrupts for %d s (do not touch) ==' % seconds)
+        t0 = time.time()
+        while time.time() - t0 < seconds:
+            try:
+                typ, ln = cv.read_int(1000)
+            except usb.core.USBTimeoutError:
+                continue
+            log('   %6.2f s: interrupt type %s len %s' % (time.time() - t0, typ, ln))
+            if ln:
+                try:
+                    data = bytes(cv.dev.read(EP_IN, max(ln, 64), timeout=2000))
+                    log('   bulk IN %d bytes:' % len(data))
+                    hexdump(data)
+                except usb.core.USBTimeoutError:
+                    log('   (no bulk data)')
+            if typ == 3:                      # re-arm so the next touch is reported too
+                cv.cancel()
+                cv.capture_start()
+                log('   re-armed')
+    finally:
+        cv.cancel()
+        cv.close()
+
+
 def do_delete(cv, handles):
     cv.open()
     try:
@@ -334,7 +364,7 @@ def do_version(cv, flags):
 def main():
     global LOG
     ap = argparse.ArgumentParser()
-    ap.add_argument('action', choices=['commit-noenroll', 'enroll', 'match', 'delete', 'version', 'stale-probe'])
+    ap.add_argument('action', choices=['commit-noenroll', 'enroll', 'match', 'delete', 'version', 'stale-probe', 'capture-idle'])
     ap.add_argument('--commit', action='append', help='p3..p5 spec, e.g. "2:0 2:0 3:4096"')
     ap.add_argument('--max-presses', type=int, default=30)
     ap.add_argument('--handles', default='', help='comma-separated template handles (hex)')
@@ -352,6 +382,8 @@ def main():
             do_version(cv, int(a.flags, 16))
         elif a.action == 'stale-probe':
             do_stale_probe(cv, handles)
+        elif a.action == 'capture-idle':
+            do_capture_idle(cv, a.presses)
         elif a.action == 'match':
             do_match(cv, handles, a.presses)
         elif a.action == 'delete':
