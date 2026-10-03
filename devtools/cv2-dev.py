@@ -157,6 +157,15 @@ def main():
     finger = sys.argv[2] if len(sys.argv) > 2 else None
     ctx, d = open_device()
     try:
+        run(action, finger, ctx, d)
+    except GLib.Error as e:
+        say('ERROR: %s' % e.message)
+    finally:
+        d.close_sync()
+
+
+def run(action, finger, ctx, d):
+    if True:
         if action == 'info':
             print('driver %s, %s' % (d.get_driver(), d.get_name()))
             print('features: %s' % d.get_features())
@@ -192,8 +201,6 @@ def main():
             do_cancel_enroll(d, ctx)
         else:
             sys.exit('unknown action %s' % action)
-    finally:
-        d.close_sync()
 
 
 if __name__ == '__main__':
