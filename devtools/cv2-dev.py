@@ -12,6 +12,7 @@ Run through run-dev.sh (root, fprintd stopped):
 Enrolled prints are saved in devtools/prints/<finger>.print.
 """
 import os
+import subprocess
 import sys
 
 BUILD = os.environ.get('LIBFPRINT_BUILD',
@@ -31,6 +32,23 @@ import gi
 gi.require_version('FPrint', '2.0')
 from gi.repository import FPrint, GLib, Gio
 
+def say(msg):
+    """Print, and show a desktop notification so the person pressing
+    fingers gets feedback without watching the terminal."""
+    print(msg, flush=True)
+    user = os.environ.get('CV2_NOTIFY_USER')
+    if not user:
+        return
+    try:
+        uid = subprocess.check_output(['id', '-u', user], text=True).strip()
+        subprocess.run(['runuser', '-u', user, '--', 'env',
+                        'DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/%s/bus' % uid,
+                        'notify-send', '-t', '4000', '-a', 'cv2', 'Fingerprint', msg],
+                       check=False, stderr=subprocess.DEVNULL, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+
 PRINTS = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'prints')
 FINGERS = {
     'right-index': FPrint.Finger.RIGHT_INDEX,
@@ -47,6 +65,19 @@ def open_device():
         sys.exit('no cv2 device (is the driver built? is fprintd stopped?)')
     d = devs[0]
     d.open_sync()
+    last = {'status': None}
+
+    def on_status(dev, pspec):
+        status = dev.get_finger_status()
+        if status == last['status']:
+            return
+        last['status'] = status
+        if status & FPrint.FingerStatusFlags.PRESENT:
+            say('Got it, reading...')
+        elif status & FPrint.FingerStatusFlags.NEEDED:
+            say('Touch the reader now')
+
+    d.connect('notify::finger-status', on_status)
     return ctx, d
 
 
@@ -67,16 +98,16 @@ def load(finger):
 
 def progress(dev, stage, pnt, data, error):
     note = ' (retry: %s)' % error.message if error else ''
-    print('  stage %d/%d%s' % (stage, dev.get_nr_enroll_stages(), note))
+    say('stage %d/%d%s' % (stage, dev.get_nr_enroll_stages(), note))
 
 
 def do_enroll(d, finger):
-    print('Press %s on the reader, lifting between presses.' % finger)
+    say('Press %s on the reader, lifting between presses.' % finger)
     template = FPrint.Print.new(d)
     template.set_finger(FINGERS[finger])
     p = d.enroll_sync(template, None, progress, None)
     save(finger, p)
-    print('ENROLLED %s' % finger)
+    say('ENROLLED %s' % finger)
 
 
 def do_cancel_enroll(d, ctx):
@@ -92,7 +123,7 @@ def do_cancel_enroll(d, ctx):
     def on_status(dev, pspec):
         if (stages and not cancellable.is_cancelled() and
                 dev.get_finger_status() & FPrint.FingerStatusFlags.NEEDED):
-            print('  cancelling while waiting for the second press')
+            say('  cancelling while waiting for the second press')
             cancellable.cancel()
 
     def done(dev, res):
@@ -103,7 +134,7 @@ def do_cancel_enroll(d, ctx):
             result['error'] = e
 
     handler = d.connect('notify::finger-status', on_status)
-    print('Press right-index ONCE, then wait.')
+    say('Press right-index ONCE, then wait.')
     template = FPrint.Print.new(d)
     template.set_finger(FPrint.Finger.RIGHT_INDEX)
     d.enroll(template, cancellable=cancellable, progress_cb=on_progress,
@@ -115,7 +146,7 @@ def do_cancel_enroll(d, ctx):
     e = result['error']
     ok = e is not None and e.matches(Gio.io_error_quark(),
                                      Gio.IOErrorEnum.CANCELLED)
-    print('CANCELLED' if ok else 'UNEXPECTED RESULT: %r' % e)
+    say('CANCELLED' if ok else 'UNEXPECTED RESULT: %r' % e)
     print('finger status after cancel: %s' % d.get_finger_status())
 
 
@@ -133,22 +164,22 @@ def main():
         elif action == 'enroll':
             do_enroll(d, finger)
         elif action == 'verify':
-            print('Press a finger to check against %s.' % finger)
+            say('Press a finger to check against %s.' % finger)
             ok, _ = d.verify_sync(load(finger))
-            print('MATCH' if ok else 'NO MATCH')
+            say('MATCH' if ok else 'NO MATCH')
         elif action == 'identify':
             names = sorted(f[:-6] for f in os.listdir(PRINTS) if f.endswith('.print'))
             gallery = [load(n) for n in names]
-            print('Press a finger; gallery: %s' % ', '.join(names))
+            say('Press a finger; gallery: %s' % ', '.join(names))
             match, _ = d.identify_sync(gallery)
             if match is None:
-                print('NO MATCH')
+                say('NO MATCH')
             else:
-                print('MATCH %s' % names[[g.equal(match) for g in gallery].index(True)])
+                say('MATCH %s' % names[[g.equal(match) for g in gallery].index(True)])
         elif action == 'delete':
             d.delete_print_sync(load(finger))
             os.remove(print_path(finger))
-            print('DELETED %s' % finger)
+            say('DELETED %s' % finger)
         elif action == 'verify-bogus':
             try:
                 d.verify_sync(FPrint.Print.new(d))
@@ -156,7 +187,7 @@ def main():
             except GLib.Error as e:
                 invalid = e.matches(FPrint.DeviceError.quark(),
                                     FPrint.DeviceError.DATA_INVALID)
-                print('DATA_INVALID' if invalid else 'UNEXPECTED ERROR: %s' % e)
+                say('DATA_INVALID' if invalid else 'UNEXPECTED ERROR: %s' % e)
         elif action == 'cancel-enroll':
             do_cancel_enroll(d, ctx)
         else:

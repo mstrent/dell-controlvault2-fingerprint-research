@@ -8,6 +8,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 USER_NAME="${PKEXEC_UID:+$(id -nu "$PKEXEC_UID")}"; USER_NAME="${USER_NAME:-${SUDO_USER:-}}"; [[ -n $USER_NAME ]] || { echo "run with pkexec or sudo" >&2; exit 1; }
 USER_HOME="$(getent passwd "$USER_NAME" | cut -d: -f6)"
 export LIBFPRINT_BUILD="${LIBFPRINT_BUILD:-$USER_HOME/projects/libfprint/build}"
+export CV2_NOTIFY_USER="$USER_NAME"
 
 restore() {
   systemctl unmask --runtime fprintd >/dev/null 2>&1 || true
