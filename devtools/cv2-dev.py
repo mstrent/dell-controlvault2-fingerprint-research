@@ -108,8 +108,9 @@ def do_cancel_enroll(d, ctx):
     template.set_finger(FPrint.Finger.RIGHT_INDEX)
     d.enroll(template, cancellable=cancellable, progress_cb=on_progress,
              callback=done)
+    loop = GLib.MainContext.default()
     while 'error' not in result:
-        ctx.iteration(True)
+        loop.iteration(True)
     d.disconnect(handler)
     e = result['error']
     ok = e is not None and e.matches(Gio.io_error_quark(),
