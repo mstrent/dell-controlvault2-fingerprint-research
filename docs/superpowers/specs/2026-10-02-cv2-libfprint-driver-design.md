@@ -280,3 +280,15 @@ conflict, this section wins.
    for `G_USB_DEVICE_ERROR_NO_DEVICE` and no unit test for it.
 10. The plaintext version query (`0x39`, flags `0x0440`) works on the
     reader (tested 2026-10-02), so the firmware gate uses it at open.
+11. Device open sends `0x82` (sensor reset, from the Windows driver's
+    enrollment) after the version query. Without it the reader can stay in
+    a degraded state after a suspend (no matches, enrollment never finishing)
+    with any Linux driver; it keeps stored templates. Failure is logged only.
+    Added 2026-10-02 after the degraded state was reproduced and fixed on
+    hardware.
+12. A finger event (interrupt type 3) with a nonzero length means the chip
+    got no usable capture (seen on brief touches); enroll reports a retry and
+    re-arms, verify/identify end with a retry result. `0x89` on a sample or
+    match maps to the same retry. `0x1b` (template not on the chip) maps to
+    DATA_NOT_FOUND; a multi-print identify then matches the prints one at a
+    time on the same capture, skipping missing ones.

@@ -32,6 +32,9 @@ import gi
 gi.require_version('FPrint', '2.0')
 from gi.repository import FPrint, GLib, Gio
 
+UID_CACHE = {}
+
+
 def say(msg):
     """Print, and show a desktop notification so the person pressing
     fingers gets feedback without watching the terminal."""
@@ -40,11 +43,13 @@ def say(msg):
     if not user:
         return
     try:
-        uid = subprocess.check_output(['id', '-u', user], text=True).strip()
-        subprocess.run(['runuser', '-u', user, '--', 'env',
-                        'DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/%s/bus' % uid,
-                        'notify-send', '-t', '4000', '-a', 'cv2', 'Fingerprint', msg],
-                       check=False, stderr=subprocess.DEVNULL, timeout=5)
+        uid = UID_CACHE.setdefault(user, subprocess.check_output(['id', '-u', user], text=True).strip())
+        # Don't wait: this runs inside the driver's callbacks, and delaying
+        # the driver after a finger event spoils the capture.
+        subprocess.Popen(['runuser', '-u', user, '--', 'env',
+                          'DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/%s/bus' % uid,
+                          'notify-send', '-t', '4000', '-a', 'cv2', 'Fingerprint', msg],
+                         stderr=subprocess.DEVNULL)
     except (OSError, subprocess.SubprocessError):
         pass
 

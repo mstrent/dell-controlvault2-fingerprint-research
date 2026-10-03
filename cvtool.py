@@ -26,7 +26,7 @@ EP_OUT, EP_IN, EP_INT = 0x01, 0x81, 0x85
 ALLOWED = {0x02: 'open', 0x04: 'close', 0x66: 'capture_start', 0x68: 'capture_cancel',
            0x6c: 'enroll_update', 0x6d: 'enroll_discard', 0x6e: 'enroll_commit',
            0x8a: 'enrollment_started', 0x2f: 'match', 0x0a: 'delete_template',
-           0x39: 'get_version'}
+           0x39: 'get_version', 0x82: 'windows_enroll_prep'}
 FLAGS_SYNC, FLAGS_ASYNC = 0x0440, 0x0442
 CAPTURE_MODE_ENROLL = 0x23
 LOG = None
@@ -270,6 +270,49 @@ def do_capture_idle(cv, seconds):
         cv.close()
 
 
+def do_capture_wait(cv, handle, seconds=60):
+    """After a too-short finger event, does the same capture still deliver a
+    later good press? Waits without re-arming, then matches on that capture."""
+    cv.open()
+    try:
+        cv.capture_start()
+        log('\n== capture started: quick tap, then a held press (no re-arm) ==')
+        t0 = time.time()
+        while time.time() - t0 < seconds:
+            try:
+                typ, ln = cv.read_int(1000)
+            except usb.core.USBTimeoutError:
+                continue
+            log('   %6.2f s: interrupt type %s len %s' % (time.time() - t0, typ, ln))
+            if typ == 3 and ln == 0:
+                st, ok, which = cv.match([handle])
+                log('   match on this capture -> status 0x%x%s' % (st, '' if st else ' match=%d' % ok))
+                break
+    finally:
+        cv.cancel()
+        cv.close()
+
+
+def do_reset_state(cv):
+    """Discard any unfinished enrollment and cancel any pending capture
+    (the stock driver's own abort sequence)."""
+    cv.open()
+    try:
+        log('\n== discard enrollment, cancel capture ==')
+        cv.call(0x68, [param(0, u32(0))], hdr_handle=0)
+        cv.call(0x6d, [param(0, u32(0))], hdr_handle=0)
+    finally:
+        cv.close()
+
+
+def do_send_82(cv):
+    """Send 0x82 exactly as the Windows driver does at the start of an
+    enrollment (plaintext, header handle 0, param 0:4 = 0; no session)."""
+    log('\n== 0x82 (Windows enrollment prelude) ==')
+    st, r = cv.call(0x82, [param(0, u32(0))], hdr_handle=0, flags=0x0040)
+    log('   0x82 -> status 0x%x, %d bytes' % (st, len(r)))
+
+
 def do_delete(cv, handles):
     cv.open()
     try:
@@ -364,7 +407,7 @@ def do_version(cv, flags):
 def main():
     global LOG
     ap = argparse.ArgumentParser()
-    ap.add_argument('action', choices=['commit-noenroll', 'enroll', 'match', 'delete', 'version', 'stale-probe', 'capture-idle'])
+    ap.add_argument('action', choices=['commit-noenroll', 'enroll', 'match', 'delete', 'version', 'stale-probe', 'capture-idle', 'capture-wait', 'reset-state', 'send-82'])
     ap.add_argument('--commit', action='append', help='p3..p5 spec, e.g. "2:0 2:0 3:4096"')
     ap.add_argument('--max-presses', type=int, default=30)
     ap.add_argument('--handles', default='', help='comma-separated template handles (hex)')
@@ -384,6 +427,12 @@ def main():
             do_stale_probe(cv, handles)
         elif a.action == 'capture-idle':
             do_capture_idle(cv, a.presses)
+        elif a.action == 'capture-wait':
+            do_capture_wait(cv, handles[0])
+        elif a.action == 'reset-state':
+            do_reset_state(cv)
+        elif a.action == 'send-82':
+            do_send_82(cv)
         elif a.action == 'match':
             do_match(cv, handles, a.presses)
         elif a.action == 'delete':

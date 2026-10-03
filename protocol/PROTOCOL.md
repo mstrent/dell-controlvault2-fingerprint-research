@@ -102,6 +102,7 @@ with status `0x0d`.
 | `0x02` | open session | 0 | `0:4 = 0x44`, `1:7 "myAppID\0"`, `1:8 "myUserID"`, `1:0` | `0:4` session handle (also in header +0x10) |
 | `0x04` | close session | 0 | `0:4` session handle | — |
 | `0x39` | get version | 0 | — | `1:n` version text (see [Firmware](#firmware-requirement)). Plaintext request: flags `0x0440`, header handle 0, param `0:4 = 0` (tested 2026-10-02 with `cvtool.py version`). The Windows driver sends flags `0x0040` |
+| `0x82` | sensor reset (behavioural name) | 0 | `0:4 = 0`, flags `0x0040` | — (status 0 after ~0.7 s). Sent by the Windows driver before each enrollment; see [Degraded state](#degraded-state-after-suspend) |
 | `0x8a` | begin enrollment | 0 | `0:4 = 0` | — |
 | `0x66` | capture start | session | `0:4` handle, `0:4 = 2`, `0:4` mode: `0x23` before every sample (enroll and verify); `0x48` only directly after a `0x2f`, see [Verify](#verify) | `0:20` capture ID |
 | `0x68` | capture cancel | 0 | `0:4 = 0` | — |
@@ -198,6 +199,18 @@ One `0x0a` per template; fprintd opens a new session for each.
 
 fprintd runs a [Verify](#verify) sequence against all stored handles before
 enrolling, then closes the session and opens a new one for the enrollment.
+
+## Degraded state after suspend
+
+Observed 2026-10-02: after a suspend/resume the reader got into a state where
+enrollment needed many more accepted samples (10 to 38+, often never
+finishing, with a repeating "3 accepted, 1 rejected `0x59`" pattern),
+half-covered presses were accepted, and verify never matched, including with
+the stock Linux driver. Reboot, a power-button drain with AC unplugged,
+`0x68`/`0x6d` and wiping the sensor did not help; Windows Hello still worked.
+Sending `0x82` once (as the Windows driver does) restored normal behaviour:
+4-sample enrollment and matching. A second `0x82` kept stored templates
+(verify still matched). The open driver sends `0x82` at device open.
 
 ## Status codes
 
