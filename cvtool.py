@@ -25,7 +25,8 @@ VID, PID = 0x0A5C, 0x5834
 EP_OUT, EP_IN, EP_INT = 0x01, 0x81, 0x85
 ALLOWED = {0x02: 'open', 0x04: 'close', 0x66: 'capture_start', 0x68: 'capture_cancel',
            0x6c: 'enroll_update', 0x6d: 'enroll_discard', 0x6e: 'enroll_commit',
-           0x8a: 'enrollment_started', 0x2f: 'match', 0x0a: 'delete_template'}
+           0x8a: 'enrollment_started', 0x2f: 'match', 0x0a: 'delete_template',
+           0x39: 'get_version'}
 FLAGS_SYNC, FLAGS_ASYNC = 0x0440, 0x0442
 CAPTURE_MODE_ENROLL = 0x23
 LOG = None
@@ -291,15 +292,30 @@ def _enroll(cv, specs, max_presses):
     return False
 
 
+def do_version(cv, flags):
+    try:
+        st, r = cv.call(0x39, [param(0, u32(0))], hdr_handle=0, flags=flags, quiet=True)
+    except usb.core.USBTimeoutError:
+        log('   flags 0x%04x -> no reply (timeout)' % flags)
+        return
+    log('   flags 0x%04x -> status 0x%x' % (flags, st))
+    if st == 0 and len(r) >= 0x34:
+        kind, n = struct.unpack_from('<II', r, 0x2c)
+        text = r[0x34:0x34 + n].split(b'\0')[0].decode('ascii', 'replace')
+        log('   param kind %d, %d bytes:' % (kind, n))
+        log(text)
+
+
 def main():
     global LOG
     ap = argparse.ArgumentParser()
-    ap.add_argument('action', choices=['commit-noenroll', 'enroll', 'match', 'delete'])
+    ap.add_argument('action', choices=['commit-noenroll', 'enroll', 'match', 'delete', 'version'])
     ap.add_argument('--commit', action='append', help='p3..p5 spec, e.g. "2:0 2:0 3:4096"')
     ap.add_argument('--max-presses', type=int, default=30)
     ap.add_argument('--handles', default='', help='comma-separated template handles (hex)')
     ap.add_argument('--presses', type=int, default=3)
     ap.add_argument('--log', default=None)
+    ap.add_argument('--flags', default='0x0440', help='header flags for the version query')
     a = ap.parse_args()
     if a.log:
         LOG = open(a.log, 'a')
@@ -307,7 +323,9 @@ def main():
     cv = CV()
     try:
         handles = [int(h, 16) for h in a.handles.split(',') if h]
-        if a.action == 'match':
+        if a.action == 'version':
+            do_version(cv, int(a.flags, 16))
+        elif a.action == 'match':
             do_match(cv, handles, a.presses)
         elif a.action == 'delete':
             do_delete(cv, handles)

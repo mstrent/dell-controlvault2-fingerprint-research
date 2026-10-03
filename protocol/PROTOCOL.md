@@ -28,8 +28,9 @@ Evidence files (in `../`): `enroll-full.pcap`, `enroll-usbmon*.txt`,
 
 ### Firmware requirement
 
-The firmware version string is returned by command `0x39` (see below) as
-space-separated `KEY:VALUE` text. Relevant keys:
+The firmware version string is returned by command `0x39` as newline-separated
+`KEY:VALUE` lines in a kind-1 string parameter (796 bytes on `00412015`; the
+reply is 848 bytes, several USB packets). Relevant keys:
 
 | Key | Observed values |
 |---|---|
@@ -48,7 +49,10 @@ Each command is a request/response exchange on interface 0:
 1. Chip sends an 8-byte message on **interrupt IN `0x85`**: `u32 type`, `u32 length`.
    - `type = 0`: a reply of `length` bytes is ready.
    - `type = 3`: finger event (see [Capture](#capture-and-finger-events)); `length = 0`.
-2. Host reads `length` bytes from **bulk IN `0x81`**.
+2. Host reads `length` bytes from **bulk IN `0x81`**. The stock driver reads
+   with a 4196-byte buffer. The interrupt length can exceed the message
+   (commit: interrupt 65, header 64, 65 bytes read); trust the header's total
+   length.
 
 One command is outstanding at a time.
 
@@ -97,7 +101,7 @@ with status `0x0d`.
 |---|---|---|---|---|
 | `0x02` | open session | 0 | `0:4 = 0x44`, `1:7 "myAppID\0"`, `1:8 "myUserID"`, `1:0` | `0:4` session handle (also in header +0x10) |
 | `0x04` | close session | 0 | `0:4` session handle | — |
-| `0x39` | get version | 0 | — | version string (see [Firmware](#firmware-requirement)). Seen only in captures of the Windows driver (flags `0x0040`); the plaintext-mode request is unconfirmed |
+| `0x39` | get version | 0 | — | `1:n` version text (see [Firmware](#firmware-requirement)). Plaintext request: flags `0x0440`, header handle 0, param `0:4 = 0` (tested 2026-10-02 with `cvtool.py version`). The Windows driver sends flags `0x0040` |
 | `0x8a` | begin enrollment | 0 | `0:4 = 0` | — |
 | `0x66` | capture start | session | `0:4` handle, `0:4 = 2`, `0:4` mode: `0x23` before every sample (enroll and verify); `0x48` only directly after a `0x2f`, see [Verify](#verify) | `0:20` capture ID |
 | `0x68` | capture cancel | 0 | `0:4 = 0` | — |
@@ -117,6 +121,9 @@ the host with each print. The meanings of the `0x2f` constants `0x48` and
 After `0x66` returns a capture ID, the chip sends an interrupt message with
 `type = 3` when a finger is placed. The host then sends the sample command
 (`0x6c` for enrollment) carrying that capture ID.
+
+There is no finger-removed event. The stock driver starts the next capture
+immediately after each sample; the chip raises one `type 3` event per press.
 
 ## Sequences
 
@@ -191,7 +198,7 @@ enrolling, then closes the session and opens a new one for the enrollment.
 |---|---|---|---|
 | `0x00` | all | success | — |
 | `0x59` | `0x6c` | sample rejected (poor or partial press); header-only reply | ask for another press |
-| `0x85` | `0x66` | capture already pending | `0x68` cancel, retry `0x66` |
+| `0x85` | `0x66` | capture already pending; seen on the first `0x66` of every new client after another one exited | `0x68` cancel, retry `0x66` |
 | `0x8d` | `0x6e` | no completed enrollment to commit | error |
 | `0x0d` | `0x6e` | malformed request; pending enrollment kept | bug |
 | `0x24` | `0x6e` | firmware `00412001` only: commit rejected, enrollment consumed | require firmware update |
@@ -221,4 +228,3 @@ Still open:
    `0x66` parameters 2 (`2`) and 3 (mode: `0x23` vs `0x48`).
 5. Whether `0x8a` is needed before each sample (it is sent once per enrollment
    on Linux).
-6. Plaintext-mode form of the `0x39` version query.

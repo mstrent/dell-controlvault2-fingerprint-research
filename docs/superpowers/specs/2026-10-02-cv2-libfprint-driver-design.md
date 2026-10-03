@@ -252,3 +252,31 @@ removal (internal reader) is covered by unit tests only.
    unknown (`PROTOCOL.md` open question 3); the error mapping is provisional.
 4. **Build dependencies** are not installed yet (meson, gcc, glib2-devel,
    libgusb-devel, gobject-introspection-devel, umockdev-devel, …).
+
+## Amendments (2026-10-02, from implementation planning)
+
+Captures examined during planning refine the design above; where they
+conflict, this section wins.
+
+1. Bulk IN replies are read with a 4196-byte buffer. The header's total length
+   must be ≤ bytes read; trailing bytes are ignored (the commit reply's
+   interrupt announced 65 bytes for a 64-byte message).
+2. The version text is newline-separated `KEY:VALUE` lines.
+3. There is no finger-lift wait between enroll samples; the stock driver
+   doesn't wait and the chip raises one finger event per press.
+4. Command transfers are not cancelled mid-flight. The transport checks for
+   cancellation before sending each command; only the finger wait uses the
+   cancellable. This prevents an unread reply from desynchronising the next
+   command.
+5. Cleanup always sends `0x68` when a session is open (it returns 0 with
+   nothing pending), so there is no `capture_pending` flag.
+6. A reply whose command ID doesn't match the request is discarded (at most
+   twice) before failing with a protocol error.
+7. Finger status: `NEEDED` while waiting for a press, `PRESENT` on the finger
+   event, `NONE` after the reply and at operation end.
+8. A failing `0x04` after a successful operation is logged, not reported.
+9. Device removal: libfprint's core already reports `FP_DEVICE_ERROR_REMOVED`
+   for operations that complete after removal, so the driver has no mapping
+   for `G_USB_DEVICE_ERROR_NO_DEVICE` and no unit test for it.
+10. The plaintext version query (`0x39`, flags `0x0440`) works on the
+    reader (tested 2026-10-02), so the firmware gate uses it at open.
