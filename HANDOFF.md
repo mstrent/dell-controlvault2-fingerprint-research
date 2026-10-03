@@ -90,8 +90,20 @@ Links posted on grosa787/dell-controlvault2-fingerprint-linux PR #13 and
 issue #3. 2026-10-03: series reworked after a code review (cloud session) and
 force-pushed as badc1603: 13 commits, all authored by Matt; new recording
 `tests/cv2-retries` (short touch, rejected sample, stale print first, every
-print missing). Next: respond to maintainer review; CI may need a maintainer
-to start it.
+print missing).
+2026-10-03 (later): two commits added on top, pushed as 466c9c43 (no
+rewrite): commit/delete send the attribute and authorization blocks
+(captured from PR #13's patched TOD driver, `captures/08-tod-pr13-commit-delete.pcap`),
+0x8a before every enrollment capture (as Windows does), and old firmware is
+tried instead of refused. Policy: emulate the vendor's captured traffic as
+closely as possible. MR description and a comment updated; testers on old
+firmware requested on GitHub issue #3, firmware version asked on PR #13.
+Installed locally (`install-dev.sh`). Match rate on this sensor is modest
+(roughly 1–3 of 4 in tests; same bytes as the old build), so a missed
+match is not by itself a regression.
+Next: respond to maintainer review; watch issue #3 / PR #13 for old-firmware
+results (enroll and delete with the blocks are untested on < 00412015); CI
+may need a maintainer to start it.
 Independent test: Latitude 7480 by a tester on the GitHub issue (all operations
 pass; offered to test further revisions). Firmware package facts are in the
 MR comments and README.
