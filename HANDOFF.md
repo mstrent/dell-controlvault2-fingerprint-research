@@ -78,11 +78,24 @@ git-ignored: it contains the proprietary firmware-update transfer.
 
 ## Where to resume
 
-The driver is implemented on `~/projects/libfprint` branch `cv2-driver`
-(plan: `docs/superpowers/plans/2026-10-02-cv2-libfprint-driver.md`, execution log with every ruling:
-`docs/superpowers/plans/2026-10-02-cv2-libfprint-driver-execution-log.md`). Next: publish this research repo if wanted,
-fork libfprint on GitLab, push the branch and open the MR using
-`docs/upstream-mr.md`.
+The driver is done and reviewed on `~/projects/libfprint` branch `cv2-driver`
+(13 commits on upstream master 6f9479c; execution log with every ruling:
+`docs/superpowers/plans/2026-10-02-cv2-libfprint-driver-execution-log.md`).
+
+**Upstream submission, in progress:**
+1. Done: GitLab account (GitHub sign-in) on gitlab.freedesktop.org; fork
+   permission requested in freedesktop/freedesktop#4135 (spam restrictions on
+   new accounts). Waiting for approval.
+2. Next: fork `libfprint/libfprint`, then
+   `git -C ~/projects/libfprint remote add fork https://gitlab.freedesktop.org/<user>/libfprint.git`
+   and `git -C ~/projects/libfprint push -u fork cv2-driver` (needs a personal
+   access token with `write_repository`, or an SSH key).
+3. Open the MR against `libfprint/libfprint` master using
+   `docs/upstream-mr.md` as the description. It embeds the protocol spec
+   (`docs/upstream-protocol.md`) and the AI-assistance note. The research
+   repo itself stays private (decision 2026-10-02).
+4. After it lands: the wiki's Unsupported-Devices entry for `0a5c:5834` must
+   be removed (noted in the MR).
 
 Findings from implementation (in `protocol/PROTOCOL.md` and the spec's
 amendments): the chip can enter a degraded state after suspend that `0x82`
