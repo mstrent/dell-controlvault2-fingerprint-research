@@ -14,6 +14,8 @@ Out of scope: the reader's smart-card (CCID) interfaces, firmware update, and
 the protected session mode used by the Windows driver. An open driver should
 use only the fingerprint commands documented here.
 
+2026-10-03: The commit and delete blocks were captured from Dell's Linux driver as patched by [grosa787/dell-controlvault2-fingerprint-linux#13](https://github.com/grosa787/dell-controlvault2-fingerprint-linux/pull/13) to send the values Dell's Windows driver uses (Windows sends them inside its protected session). (`captures/08-tod-pr13-commit-delete.pcap`).
+
 Evidence files (in `../`): `enroll-full.pcap`, `enroll-usbmon*.txt`,
 `cvtool.log`, and `captures/*.pcap` from `capture-session.sh`.
 
@@ -44,9 +46,11 @@ two packages only `bcmLynx_1.otp` and `bcmLynx_7.otp` differ. While
 flashing, the chip re-enumerates twice as `0a5c:5831`, so a VM should get the
 reader by USB port, not by vendor/product ID (reported on the 7480).
 
-A driver should read this at open and refuse to enroll on firmware older than
-`00412015`, with a message explaining that the update comes from Dell's
-ControlVault2 package.
+The `0x24` failures were with empty commit blocks. Commits with the vendor's
+attribute and authorization blocks (see [Commands](#commands)) are reported
+to work on old firmware, but this is untested on `00412001`/`00047026`. A
+driver should read the version at open, try enrollment anyway on older
+firmware, and on `0x24` point to Dell's ControlVault2 package.
 
 ## Transport
 
@@ -96,7 +100,7 @@ u32 kind | u32 length | data[length], zero-padded to a 4-byte boundary
 |---|---|
 | 0 | fixed-size value or blob (handles, IDs) |
 | 1 | string (open) |
-| 2 | variable-length block, sent empty in all observed requests; output slot |
+| 2 | variable-length block: `0x2f` handle list, `0x6e`/`0x0a` attribute and authorization blocks (empty from the stock Linux driver); output slot |
 | 3 | buffer, sent with length 0 in observed commit requests |
 
 A request with a declared length that doesn't match the bytes sent is rejected
@@ -110,14 +114,20 @@ with status `0x0d`.
 | `0x04` | close session | 0 | `0:4` session handle | — |
 | `0x39` | get version | 0 | — | `1:n` version text (see [Firmware](#firmware-requirement)). Plaintext request: flags `0x0440`, header handle 0, param `0:4 = 0` (tested 2026-10-02 with `cvtool.py version`). The Windows driver sends flags `0x0040` |
 | `0x82` | sensor reset (behavioral name) | 0 | `0:4 = 0`, flags `0x0040` | — (status 0 after ~0.7 s). Sent by the Windows driver before each enrollment; see [Degraded state](#degraded-state-after-suspend) |
-| `0x8a` | begin enrollment | 0 | `0:4 = 0` | — |
+| `0x8a` | begin enrollment | 0 | `0:4 = 0` | — (Windows: before every capture; stock Linux driver: once) |
 | `0x66` | capture start | session | `0:4` handle, `0:4 = 2`, `0:4` mode: `0x23` before every sample (enroll and verify); `0x48` only directly after a `0x2f`, see [Verify](#verify) | `0:20` capture ID |
 | `0x68` | capture cancel | 0 | `0:4 = 0` | — |
 | `0x6c` | enrollment sample | session | `0:4` handle, `0:20` capture ID, `2:0` | `0:4` done flag (low byte), `0:20` ID, `0:4` (0) |
-| `0x6e` | commit enrollment | session | `0:4` handle, `0:20` result ID, `2:0`, `2:0`, `3:0` | `3:0`, `0:4` **template handle** |
+| `0x6e` | commit enrollment | session | `0:4` handle, `0:20` result ID, `2:8` attributes, `2:21` authorization (stock Linux driver: `2:0`, `2:0`), `3:0` | `3:0`, `0:4` **template handle** |
 | `0x6d` | discard enrollment | 0 | `0:4 = 0` | — |
 | `0x2f` | match | session | `0:4` handle, `0:4 = 0x48`, `0:4 = 0x53e2`, `0:4 = 0`, `2:4n` template handle(s) | `0:4` match (1/0), `0:4` matched template handle (0 if none) |
-| `0x0a` | delete template | session | `0:4` handle, `0:4` template handle, `2:0` | — |
+| `0x0a` | delete template | session | `0:4` handle, `0:4` template handle, `2:21` authorization (stock Linux driver: `2:0`) | — |
+
+Attributes: `00 00 04 00 04 00 00 00`. Authorization: `01 01 ff 00 00 00 0d 00
+0c` + `"BroadcomWBF\0"` (21 bytes). Tested 2026-10-03 on `00412015`: commit and
+delete with both blocks succeed, templates committed with them match, and a
+delete with the authorization also removes a template committed with empty
+blocks.
 
 Template handles are 32-bit values assigned by the chip at commit (observed:
 `0x00dfa007`, `0x00785a80`). They persist across sessions and must be stored by
@@ -154,7 +164,11 @@ until done flag == 1
   capture ID that was sent. The commit carries this final ID. On earlier
   samples the reply echoes the capture ID.
 - Firmware `00412015`: 4 accepted samples. Firmware `00412001`: 13 accepted
-  samples, then commit fails with `0x24`.
+  samples, then commit (empty blocks) fails with `0x24`.
+- Dell's Windows driver sends `0x8a` before every capture
+  (`windows-captures/03.pcap`), each followed by a protected session per
+  sample. Sending `0x8a` before every capture on the plaintext interface
+  (tested 2026-10-03) still completes in 4 samples; the open driver does so.
 - Abort path: `0x68` cancel, `0x6d` discard, `0x04` close.
 
 ### Verify
@@ -228,7 +242,7 @@ Sending `0x82` once (as the Windows driver does) restored normal behavior:
 | `0x85` | `0x66` | capture already pending; seen on the first `0x66` of every new client after another one exited | `0x68` cancel, retry `0x66` |
 | `0x8d` | `0x6e` | no completed enrollment to commit | error |
 | `0x0d` | `0x6e` | malformed request; pending enrollment kept | bug |
-| `0x24` | `0x6e` | firmware `00412001` only: commit rejected, enrollment consumed | require firmware update |
+| `0x24` | `0x6e` | firmware `00412001`, commit with empty blocks: rejected, enrollment consumed | suggest firmware update |
 | `0x1b` | `0x2f`, `0x0a` | template handle not on the chip (deleted); tested 2026-10-02 | print not found |
 | `0x47` | `0x2f`, `0x66` | `0x2f` with no template handles; `0x66` (mode `0x48`) after every match | no match / expected, ignore |
 
@@ -253,5 +267,7 @@ Still open:
    constants `0x48` and `0x53e2`.
 4. Meaning of the `0x02` open parameters (`0x44`, app/user strings) and of
    `0x66` parameters 2 (`2`) and 3 (mode: `0x23` vs `0x48`).
-5. Whether `0x8a` is needed before each sample (it is sent once per enrollment
-   on Linux).
+5. Whether `0x8a` before each sample matters on any firmware (Windows sends
+   it; the stock Linux driver doesn't; both work on `00412015`).
+6. Whether firmware before `00412015` enrolls with the commit's attribute and
+   authorization blocks, and what those bytes mean.
