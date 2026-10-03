@@ -26,6 +26,7 @@ Key documents here:
   - Read the MR: `glab mr view 672 --repo libfprint/libfprint`
   - Pipelines live in the fork project your fork (`<user>/libfprint`), for example `glab api projects/<user>%2Flibfprint/pipelines/<id>/jobs`.
 - Push fixes: `git -C ~/projects/libfprint push fork cv2-driver`.
+- A public GitHub mirror of the libfprint branch (remote `github`, with a review-only PR #1) exists for cloud code reviews. Push fixes there too; never merge that PR.
 - CI facts:
   - Push pipelines on the fork always fail with a runner-gating "privileges" message. Only the MR pipeline counts.
   - `test_scan_build` fails on upstream master too (elanspi, generated introspection code) and is allowed to fail. Keep `cv2` at zero warnings; reproduce locally with `SCANBUILD=$PWD/.gitlab-ci/scan-build ninja -C _build scan-build` (`meson setup _build -Ddrivers=all`).
