@@ -6,6 +6,7 @@ set -euo pipefail
 [[ $EUID -eq 0 ]] || { echo "run as root (pkexec)" >&2; exit 1; }
 USER_NAME="${PKEXEC_UID:+$(id -nu "$PKEXEC_UID")}"; USER_NAME="${USER_NAME:-${SUDO_USER:-}}"; [[ -n $USER_NAME ]] || { echo "run with pkexec or sudo" >&2; exit 1; }
 SRC="$(getent passwd "$USER_NAME" | cut -d: -f6)/projects/libfprint"
+cd "$SRC"
 
 if [[ ! -d "$SRC/build-install" ]]; then
   runuser -u "$USER_NAME" -- meson setup "$SRC/build-install" "$SRC" \
