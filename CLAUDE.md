@@ -8,7 +8,7 @@ KDE Plasma). Status and next steps: `HANDOFF.md`. Read it first.
 
 | Path | What | Rules |
 |---|---|---|
-| `~/projects/cv2-research` (this repo) | protocol notes, captures, tools, spec, plan, execution log, MR text | **Public** at https://github.com/mstrent/dell-controlvault2-fingerprint-research (remote `origin`, CC0). Keep usernames and `windows-captures/` (Dell firmware) out of it |
+| `~/projects/cv2-research` (this repo) | protocol notes, captures, tools, spec, plan, execution log, MR text | **Public** on GitHub as `dell-controlvault2-fingerprint-research` (remote `origin`, CC0). Keep usernames and `windows-captures/` (Dell firmware) out of it |
 | `~/projects/libfprint` branch `cv2-driver` | the driver; remote `fork` = `your fork of libfprint on gitlab.freedesktop.org` | Upstream MR !672. Its `CLAUDE.md` is excluded via `.git/info/exclude`; never commit it |
 | `~/projects/cv2-fingerprint` | old patched-TOD stopgap (clone of someone else's repo) | Don't build on it. Its `uninstall-fedora.sh` also removes fprintd/fprintd-pam |
 
