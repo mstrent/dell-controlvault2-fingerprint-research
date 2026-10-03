@@ -202,6 +202,7 @@ enrolling, then closes the session and opens a new one for the enrollment.
 | `0x8d` | `0x6e` | no completed enrollment to commit | error |
 | `0x0d` | `0x6e` | malformed request; pending enrollment kept | bug |
 | `0x24` | `0x6e` | firmware `00412001` only: commit rejected, enrollment consumed | require firmware update |
+| `0x1b` | `0x2f`, `0x0a` | template handle not on the chip (deleted); tested 2026-10-02 | print not found |
 | `0x47` | `0x2f`, `0x66` | `0x2f` with no template handles; `0x66` (mode `0x48`) after every match | no match / expected, ignore |
 
 ## Security model
@@ -223,7 +224,6 @@ Still open:
 1. Listing templates stored on the chip; slot limit; behaviour when full.
 2. Purpose of the `0x66` mode `0x48` call after a match, and of the `0x2f`
    constants `0x48` and `0x53e2`.
-3. Behaviour of `0x2f` / `0x0a` with a stale (already deleted) handle.
 4. Meaning of the `0x02` open parameters (`0x44`, app/user strings) and of
    `0x66` parameters 2 (`2`) and 3 (mode: `0x23` vs `0x48`).
 5. Whether `0x8a` is needed before each sample (it is sent once per enrollment
