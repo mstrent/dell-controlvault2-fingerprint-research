@@ -19,6 +19,13 @@ reader found in the Latitude 7490 and similar machines.
   into a state where enrollment needed many more samples and nothing
   matched, with any Linux driver; 0x82 restores it and keeps stored
   templates.
+  Cost: about 0.7 s added to every open (each fprintd claim). The command's
+  exact meaning is unknown; it is used as observed from the Windows driver.
+- There is no suspend/resume handler: an operation running at suspend is
+  ended by libfprint, and the sensor reset at the next open recovers the
+  chip (tested: suspend during verify, then verify).
+- An enrollment that has not finished after 30 accepted samples fails with
+  an error asking to clean the sensor, instead of prompting forever.
 - Robustness: a brief touch (finger event with nonzero length) asks for
   another press; a print that is no longer on the chip doesn't block identify
   for the user's other prints (the chip fails the whole list, so the driver
