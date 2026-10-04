@@ -51,13 +51,13 @@ bytes, several USB packets). Relevant keys:
 | Key | Observed values |
 |---|---|
 | `USH_CHIPID` | `05810211` |
-| `USH_REL_UPGRADE_VER` | `00047026` (4.7.26, 2017; factory on a Latitude 7480) and `00412001` (4.12.001; factory on a 7490, also in Dell package 4.12.5.8): enrollment commit fails with `0x24` · `00412015` (4.12.015, Dell package 4.12.11.15): enrollment works |
+| `USH_REL_UPGRADE_VER` | `00047026` (4.7.26, 2017; factory on a Latitude 7480) and `00412001` (4.12.001; factory on a 7490, also in Dell package 4.12.5.8): enrollment commit with empty arguments fails with `0x24` · `00412015` (4.12.015, Dell package 4.12.11.15): enrollment works either way |
 
-The `0x24` failures above were with empty commit arguments; the driver now
-sends the vendor's (see [Commands](#commands)), untested on the older
-versions. It reads the version at open and, on firmware older than
-`00412015`, logs that enrollment may fail and points to Dell's ControlVault2
-firmware package. Status `0x24` at commit gives the same advice as an error.
+With the vendor's commit arguments (see [Commands](#commands)), `00412001`
+enrolls, matches and deletes (tested on a Precision 3520); `00047026` is
+untested with them. The driver logs the version at open and does not gate
+anything on it. Status `0x24` at commit gives an error that names the
+firmware and suggests Dell's ControlVault2 firmware package.
 
 ## Transport
 
@@ -271,7 +271,6 @@ session instead, which is out of scope.
    parameters (`0x44`, app/user strings), of `0x66` parameter 2 (`2`), and of
    mode `0x48`.
 4. Other finger-event lengths besides 0 and 7.
-5. Behavior on firmware other than `00412001` and `00412015`, and whether
-   firmware before `00412015` enrolls with the commit's attribute and
-   authorization blocks.
+5. Behavior on firmware other than `00412001` and `00412015` (for example
+   `00047026` with the commit's attribute and authorization blocks).
 6. Meaning of the attribute and authorization bytes.
