@@ -101,9 +101,12 @@ firmware requested on GitHub issue #3, firmware version asked on PR #13.
 Installed locally (`install-dev.sh`). Match rate on this sensor is modest
 (roughly 1–3 of 4 in tests; same bytes as the old build), so a missed
 match is not by itself a regression.
-Next: respond to maintainer review; watch issue #3 / PR #13 for old-firmware
-results (enroll and delete with the blocks are untested on < 00412015); CI
-may need a maintainer to start it.
+2026-10-04: a tester's Precision 3520 on firmware `00412001` passed enroll,
+verify, wrong-finger rejection and delete with the open driver (issue #3),
+so the blocks make old firmware work without an update. Next: rethink the
+driver's old-firmware messages/gate (no longer needed as a warning), then
+update the MR; respond to maintainer review; CI may need a maintainer to
+start it.
 Independent test: Latitude 7480 by a tester on the GitHub issue (all operations
 pass; offered to test further revisions). Firmware package facts are in the
 MR comments and README.

@@ -29,16 +29,16 @@ the probe and development tools, and the design and implementation notes.
 
 ## Things worth knowing
 
-- **Firmware:** `00412015` (4.12.015) is known to enroll. Older factory
-  firmware (seen: `00412001` on a 7490, `00047026` on a 7480) rejected every
-  enrollment commit with status `0x24` when the commit's attribute and
-  authorization blocks were empty, as Dell's Linux driver sends them. The
-  open driver now sends the blocks Dell's Windows driver uses, which others
-  report makes old firmware enroll. That is **untested** here, since both
-  test machines are updated; if you have old firmware, please help test
-  ([request](https://github.com/grosa787/dell-controlvault2-fingerprint-linux/issues/3)).
-  The driver tries to enroll on any firmware and, on `0x24`, points to the
-  update:
+- **Firmware:** older factory firmware (seen: `00412001` on a 7490,
+  `00047026` on a 7480) rejected every enrollment commit with status `0x24`
+  when the commit's attribute and authorization blocks were empty, as Dell's
+  Linux driver sends them. The open driver now sends the blocks Dell's
+  Windows driver uses, and with them **`00412001` does everything with no
+  firmware update**: enroll, verify, reject a wrong finger, delete (a
+  Precision 3520, tested by a user,
+  [report](https://github.com/grosa787/dell-controlvault2-fingerprint-linux/issues/3)).
+  `00412015` works either way; `00047026` is untested with the blocks. If
+  enrollment still fails with `0x24`, the firmware update is the fallback:
   - 4.12.015 ships only in Dell's *ControlVault2 Driver and Firmware*
     **4.12.11.15, A25** (driver ID NX3HH,
     [download](https://www.dell.com/support/home/en-us/drivers/driversdetails?driverid=nx3hh)).

@@ -46,11 +46,12 @@ two packages only `bcmLynx_1.otp` and `bcmLynx_7.otp` differ. While
 flashing, the chip re-enumerates twice as `0a5c:5831`, so a VM should get the
 reader by USB port, not by vendor/product ID (reported on the 7480).
 
-The `0x24` failures were with empty commit blocks. Commits with the vendor's
-attribute and authorization blocks (see [Commands](#commands)) are reported
-to work on old firmware, but this is untested on `00412001`/`00047026`. A
-driver should read the version at open, try enrollment anyway on older
-firmware, and on `0x24` point to Dell's ControlVault2 package.
+The `0x24` failures were with empty commit blocks. With the vendor's
+attribute and authorization blocks (see [Commands](#commands)), `00412001`
+enrolls, matches, rejects a wrong finger and deletes (2026-10-04, a tester's
+Precision 3520, three runs). `00047026` is untested with the blocks. A
+driver should not refuse old firmware; on `0x24` it can still point to
+Dell's ControlVault2 package.
 
 ## Transport
 
@@ -300,5 +301,5 @@ Still open:
    `0x66` parameters 2 (`2`) and 3 (mode: `0x23` vs `0x48`).
 5. Whether `0x8a` before each sample matters on any firmware (Windows sends
    it; the stock Linux driver doesn't; both work on `00412015`).
-6. Whether firmware before `00412015` enrolls with the commit's attribute and
-   authorization blocks, and what those bytes mean.
+6. Whether `00047026` (and other firmware before `00412001`) enrolls with the
+   commit's attribute and authorization blocks, and what those bytes mean.
