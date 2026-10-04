@@ -114,7 +114,7 @@ with status `0x0d`.
 | `0x02` | open session | 0 | `0:4 = 0x44`, `1:7 "myAppID\0"`, `1:8 "myUserID"`, `1:0` | `0:4` session handle (also in header +0x10) |
 | `0x04` | close session | 0 | `0:4` session handle | — |
 | `0x39` | get version | 0 | — | `1:n` version text (see [Firmware](#firmware-requirement)). Plaintext request: flags `0x0440`, header handle 0, param `0:4 = 0` (tested 2026-10-02 with `cvtool.py version`). The Windows driver sends flags `0x0040` |
-| `0x82` | sensor reset (behavioral name) | 0 | `0:4 = 0`, flags `0x0040` | — (status 0 after ~0.7 s). Sent by the Windows driver before each enrollment; see [Degraded state](#degraded-state-after-suspend) |
+| `0x82` | sensor reset (behavioral name) | 0 | `0:4 = 0`, flags `0x0040` | — (status 0 after ~0.7 s). Sent by the Windows driver when its Fingerprint settings page opens and when the device is (re)initialized, which is also before enrollments; see [Degraded state](#degraded-state-after-suspend) and [Windows flows](#windows-flows) |
 | `0x8a` | begin enrollment | 0 | `0:4 = 0` | — (Windows: before every capture; stock Linux driver: once) |
 | `0x66` | capture start | session | `0:4` handle, `0:4 = 2`, `0:4` mode: `0x23` before every sample (enroll and verify); `0x48` only directly after a `0x2f`, see [Verify](#verify) | `0:20` capture ID |
 | `0x68` | capture cancel | 0 | `0:4 = 0` | — |
@@ -236,7 +236,8 @@ Tested 2026-10-04 (cvtool `commit-fill` and timed `delete`, `cvtool.log`).
   second time fails with `0x8d`, so every template needs its own full
   enrollment; the chip can't be filled quickly from one.
 - **No list command** has been seen in any capture, Linux or Windows; fprintd
-  lists prints from its own storage. Dell states only that readers with
+  lists prints from its own storage, and so does Windows (see
+  [Windows flows](#windows-flows)). Dell states only that readers with
   ControlVault hold "more than 10" enrollments (KB 000370873). Capacity and
   behavior when full are unknown; nobody has reported reaching it.
 - **Missing handles answer fast:** `0x0a` on a handle not on the chip returns
@@ -251,6 +252,58 @@ Tested 2026-10-04 (cvtool `commit-fill` and timed `delete`, `cvtool.log`).
   other ControlVault objects. Finding templates without deleting them (match
   each handle against one held capture) takes about 8 days. Neither is meant
   for the driver; it is a last-resort recovery idea.
+
+## Windows flows
+
+Captured 2026-10-04 in the Windows VM (Windows Hello, Dell ControlVault2
+package 4.12.11.15), one flow per capture: `windows-captures/05`–`13`
+(git-ignored, like the other Windows captures). Windows talks through its
+protected session, so only command IDs, flags, sizes, statuses and timing are
+readable, plus the few plaintext commands.
+
+### Protected session
+
+Before each protected step Windows runs `0x23` (24 bytes in, a 152-byte reply
+that assigns a session handle) and `0x24` (128 high-entropy bytes), then opens
+a session with `0x02`. Protected messages carry random-looking bytes at header
+`0x18`–`0x27` (zero in plaintext mode) and a high-entropy payload. Two flag
+variants were seen: `0x0241`/`0x0243` (enrollment, identify) and
+`0x0041`/`0x0043` (delete), so bit `0x0200` does not mean "encrypted".
+
+### What each user action sends
+
+| Flow | Capture | Commands (besides the protected-session setup) |
+|---|---|---|
+| Open Settings → Fingerprint | `05` | **`0x82` only.** Windows lists enrolled fingers from its own records; it does not ask the chip |
+| Enroll, account has no fingers | `13` | `0x39`, then (`0x8a` `0x66` `0x6c`) ×4, `0x6e` |
+| Enroll, account already has fingers | `06`, `13` | first touch: `0x66` → `0x73` (identify, duplicate check); then `0x39`, (`0x8a` `0x66` `0x6c`) ×4, **`0x2f` after the last sample** (second duplicate check), `0x6e` |
+| Cancel an enrollment | `06` | `0x68`, `0x6d` (same as the open driver's cleanup) |
+| Remove (all of the account's fingers) | `07` | `0x82`, then **one `0x0a` per finger** (2 fingers → 2 deletes). No bulk command |
+| Disable/enable the devices in Device Manager | `08` | `0x82`, then `0x82` and `0x39` ×2 on re-enable. Nothing else |
+| Sign in / unlock | `09`, `11` | `0x66` → `0x73` (identify) → `0x66` → **`0x9a`** → … → `0x68` |
+| Failed attempts, then success | `12` | `0x73` per attempt; **`0x9a` only after the successful one** |
+
+So Windows has no list, enumerate or clear command in its flows: it keeps its
+own list of template handles and deletes them one at a time.
+
+### `0x9a`
+
+Plaintext (flags `0x0040`, no session), one `u32` parameter, sent once after
+each **successful** sign-in or unlock (5 of 5 captures), never after a failed
+identify or an enrollment's duplicate check. The parameter differs every time
+(`0x2b4c125e`, `0xf1eec6a1`, `0x08ec4787`, `0x419f2dbb`, `0x196869de`), so it
+is not a user or template ID. It always fails with status **`0x57`** in about
+13 ms, and Windows carries on. Behaviorally: Windows reports a successful
+sign-in to the chip with a fresh value, and this chip refuses it. The open
+driver does not send it.
+
+### Other commands seen
+
+| IDs | Where | Likely role |
+|---|---|---|
+| `0x36` ×28 (1–4 KB), `0x4b` | firmware update, stage 1 (done twice; the chip re-enumerates as `0a5c:5831`) | image upload, then commit or reboot |
+| `0x43`, `0x44` ×300, `0x45`, `0x4c` | firmware update, stage 2 | header, encrypted data, finalize, activate. Talos names `CV_CMD_FW_UPGRADE_START`/`_UPDATE`/`_COMPLETE` for ControlVault3; the shape matches, the IDs are an inference |
+| `0x73` | identify | protected match (the plaintext interface uses `0x2f`) |
 
 ## Degraded state after suspend
 
@@ -271,6 +324,7 @@ Sending `0x82` once (as the Windows driver does) restored normal behavior:
 | `0x00` | all | success | — |
 | `0x59` | `0x6c` | sample rejected (poor or partial press); header-only reply | ask for another press |
 | `0x85` | `0x66` | capture already pending; seen on the first `0x66` of every new client after another one exited | `0x68` cancel, retry `0x66` |
+| `0x57` | `0x9a` | always, after each successful Windows sign-in (see [`0x9a`](#0x9a)) | not sent by the open driver |
 | `0x8d` | `0x6e` | no completed enrollment to commit (also a second commit of the same result) | error |
 | `0x0d` | `0x6e` | malformed request; pending enrollment kept | bug |
 | `0x24` | `0x6e` | firmware `00412001`, commit with empty blocks: rejected, enrollment consumed | suggest firmware update |
@@ -293,7 +347,8 @@ handles; delete command.
 
 Still open:
 
-1. Template capacity and behavior when full (no list command known; see
+1. Template capacity and behavior when full; whether the chip has a list
+   command at all (none in any Linux or Windows flow; see
    [Template storage](#template-storage)).
 2. Purpose of the `0x66` mode `0x48` call after a match, and of the `0x2f`
    constants `0x48` and `0x53e2`.
@@ -303,3 +358,4 @@ Still open:
    it; the stock Linux driver doesn't; both work on `00412015`).
 6. Whether `00047026` (and other firmware before `00412001`) enrolls with the
    commit's attribute and authorization blocks, and what those bytes mean.
+7. What `0x9a` is for and why it fails with `0x57` (see [`0x9a`](#0x9a)).
