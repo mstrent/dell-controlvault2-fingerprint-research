@@ -15,6 +15,8 @@ SAFETY: only command IDs the stock driver itself sends are allowed.
 Usage (as root, with fprintd stopped; see run-cvtool.sh):
   cvtool.py commit-noenroll
   cvtool.py enroll [--commit "2:0 2:0 3:0"] [--commit "..."] ...
+  cvtool.py commit-fill --handles-file F [--max-commits N]
+  cvtool.py delete (--handles H,H | --handles-file F) [--auth]
 Each --commit is the p3..p5 spec "kind:len[:hex]"; they are tried in order on
 the same enrollment until one returns status 0. Default: the stock layout.
 """
@@ -28,6 +30,10 @@ ALLOWED = {0x02: 'open', 0x04: 'close', 0x66: 'capture_start', 0x68: 'capture_ca
            0x8a: 'enrollment_started', 0x2f: 'match', 0x0a: 'delete_template',
            0x39: 'get_version', 0x82: 'windows_enroll_prep'}
 FLAGS_SYNC, FLAGS_ASYNC = 0x0440, 0x0442
+# The commit's attribute and authorization blocks and the delete's
+# authorization, as the libfprint cv2 driver sends them
+AUTH = '0101ff0000000d000c42726f6164636f6d57424600'
+VENDOR_COMMIT = '2:8:0000040004000000 2:21:%s 3:0' % AUTH
 CAPTURE_MODE_ENROLL = 0x23
 LOG = None
 
@@ -187,9 +193,10 @@ class CV:
         ps = parse_params(r)
         return st, struct.unpack('<I', ps[0][2])[0], struct.unpack('<I', ps[1][2])[0]
 
-    def delete_template(self, h):
-        return self.call(0x0a, [param(0, u32(self.handle)), param(0, u32(h)), param(2, b'', 0)],
-                         flags=FLAGS_ASYNC)[0]
+    def delete_template(self, h, auth=False):
+        block = param(2, bytes.fromhex(AUTH)) if auth else param(2, b'', 0)
+        return self.call(0x0a, [param(0, u32(self.handle)), param(0, u32(h)), block],
+                         flags=FLAGS_ASYNC, quiet=True)[0]
 
     def commit(self, token, tail_params):
         return self.call(0x6e, [param(0, u32(self.handle)), param(0, token)] + tail_params)
@@ -313,12 +320,99 @@ def do_send_82(cv):
     log('   0x82 -> status 0x%x, %d bytes' % (st, len(r)))
 
 
-def do_delete(cv, handles):
+def do_delete(cv, handles, auth=False):
     cv.open()
     try:
+        counts, times = {}, {}
         for h in handles:
-            log('   delete 0x%08x -> status 0x%x' % (h, cv.delete_template(h)))
+            t0 = time.monotonic()
+            st = cv.delete_template(h, auth)
+            dt = time.monotonic() - t0
+            counts[st] = counts.get(st, 0) + 1
+            times.setdefault(st, []).append(dt)
+            log('   delete 0x%08x -> status 0x%x (%.3f s)' % (h, st, dt))
+        log('   delete summary: %s' % ', '.join(
+            'status 0x%x x%d (median %.3f s)' % (st, n, sorted(times[st])[len(times[st]) // 2])
+            for st, n in sorted(counts.items())))
     finally:
+        cv.close()
+
+
+def read_handles_file(path):
+    with open(path) as f:
+        return [int(line.split()[0], 16) for line in f if line.strip()]
+
+
+def do_commit_fill(cv, handles_file, max_commits, max_presses):
+    """Enroll once (as the driver does), then commit the same enrollment
+    result repeatedly until the chip refuses, a handle repeats, or
+    max_commits. Every handle is appended to handles_file at once, for
+    cleanup with: delete --handles-file F --auth. Then one press checks which
+    handles still exist (a missing one fails a match with 0x1b)."""
+    log('\n== 0x82 sensor reset ==')
+    cv.call(0x82, [param(0, u32(0))], hdr_handle=0, flags=0x0040, quiet=True)
+    cv.open()
+    handles = []
+    try:
+        token = None
+        good = 0
+        log('\n== enrollment: press and lift fully each time ==')
+        for _ in range(max_presses):
+            cv.enrollment_started()            # before every capture, as the driver does
+            cap_id = cv.capture_start()
+            print('   touch the sensor (%d accepted so far)...' % good, flush=True)
+            if not cv.wait_finger():
+                log('   no finger within 60 s, giving up'); break
+            st, done, rid = cv.update(cap_id)
+            if st in (0x59, 0x89):
+                log('   sample not usable (0x%x), press again' % st); continue
+            if st:
+                log('   unexpected update status 0x%x, stopping' % st); break
+            good += 1
+            log('   sample #%d accepted, done=%d' % (good, done))
+            if done:
+                token = rid; break
+        if token is None:
+            log('   enrollment did not complete'); cv.discard(); return
+        log('   result ID = %s' % token.hex())
+
+        log('\n== committing the same result up to %d times ==' % max_commits)
+        t0 = time.time()
+        stop = 'reached --max-commits'
+        for i in range(max_commits):
+            st, r = cv.call(0x6e, [param(0, u32(cv.handle)), param(0, token)] + parse_spec(VENDOR_COMMIT),
+                            quiet=True)
+            if st:
+                stop = 'commit #%d failed with status 0x%x' % (i + 1, st)
+                break
+            h = struct.unpack('<I', parse_params(r)[-1][2])[0]
+            if h in handles:
+                stop = 'commit #%d returned handle 0x%08x again' % (i + 1, h); break
+            handles.append(h)
+            with open(handles_file, 'a') as f:
+                f.write('%08x\n' % h); f.flush(); os.fsync(f.fileno())
+            log('   commit #%d -> handle 0x%08x (%.1f s)' % (i + 1, h, time.time() - t0))
+        log('   STOP: %s; %d new handles in %s' % (stop, len(handles), handles_file))
+
+        if handles:
+            log('\n== existence check: one press, then each handle matched alone ==')
+            cv.cancel()
+            cv.capture_start()
+            print('   touch the sensor with the SAME finger...', flush=True)
+            if not cv.wait_finger():
+                log('   no finger within 60 s; skipping the check'); return
+            present = missing = other = 0
+            for h in handles:
+                st, ok, which = cv.match([h])
+                if st == 0:
+                    present += 1
+                elif st == 0x1b:
+                    missing += 1; log('   0x%08x MISSING' % h)
+                else:
+                    other += 1; log('   0x%08x -> status 0x%x' % (h, st))
+            log('   existence: %d present, %d missing, %d other' % (present, missing, other))
+    finally:
+        cv.cancel()
         cv.close()
 
 
@@ -407,20 +501,27 @@ def do_version(cv, flags):
 def main():
     global LOG
     ap = argparse.ArgumentParser()
-    ap.add_argument('action', choices=['commit-noenroll', 'enroll', 'match', 'delete', 'version', 'stale-probe', 'capture-idle', 'capture-wait', 'reset-state', 'send-82'])
+    ap.add_argument('action', choices=['commit-noenroll', 'enroll', 'commit-fill', 'match', 'delete', 'version', 'stale-probe', 'capture-idle', 'capture-wait', 'reset-state', 'send-82'])
     ap.add_argument('--commit', action='append', help='p3..p5 spec, e.g. "2:0 2:0 3:4096"')
     ap.add_argument('--max-presses', type=int, default=30)
     ap.add_argument('--handles', default='', help='comma-separated template handles (hex)')
     ap.add_argument('--presses', type=int, default=3)
     ap.add_argument('--log', default=None)
+    ap.add_argument('--handles-file', default=None, help='file of hex handles, one per line')
+    ap.add_argument('--max-commits', type=int, default=300)
+    ap.add_argument('--auth', action='store_true', help='delete with the authorization block')
     ap.add_argument('--flags', default='0x0440', help='header flags for the version query')
     a = ap.parse_args()
     if a.log:
         LOG = open(a.log, 'a')
-        log('#### %s %s' % (time.strftime('%F %T'), ' '.join(sys.argv[1:])))
+        # File names only: paths can contain the user name
+        log('#### %s %s' % (time.strftime('%F %T'),
+                            ' '.join(os.path.basename(x) for x in sys.argv[1:])))
     cv = CV()
     try:
         handles = [int(h, 16) for h in a.handles.split(',') if h]
+        if a.handles_file and a.action == 'delete':
+            handles += read_handles_file(a.handles_file)
         if a.action == 'version':
             do_version(cv, int(a.flags, 16))
         elif a.action == 'stale-probe':
@@ -436,7 +537,11 @@ def main():
         elif a.action == 'match':
             do_match(cv, handles, a.presses)
         elif a.action == 'delete':
-            do_delete(cv, handles)
+            do_delete(cv, handles, a.auth)
+        elif a.action == 'commit-fill':
+            if not a.handles_file:
+                sys.exit('commit-fill needs --handles-file')
+            do_commit_fill(cv, a.handles_file, a.max_commits, a.max_presses)
         elif a.action == 'commit-noenroll':
             do_commit_noenroll(cv)
         else:

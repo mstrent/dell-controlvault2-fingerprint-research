@@ -221,6 +221,36 @@ One `0x0a` per template; fprintd opens a new session for each.
 fprintd runs a [Verify](#verify) sequence against all stored handles before
 enrolling, then closes the session and opens a new one for the enrollment.
 
+## Template storage
+
+Tested 2026-10-04 (cvtool `commit-fill` and timed `delete`, `cvtool.log`).
+
+- **Handles are 24-bit and look random.** All 18 handles committed in our
+  captures and logs have a zero top byte and no order or step:
+  `00785a80 007cfa75 00afe6fb 0000b1c8 00a7d371 00740102 001dbdae 00a2dc0d
+  006e718d 0033637c 00f92683 00e07c5e 00e480f9 00946897 00264032 00fd0b40
+  00490d81 001cba41` (in commit order; a tester's chip gave `006468fb`,
+  `0054720d`).
+- **A commit consumes the enrollment.** Committing the same result ID a
+  second time fails with `0x8d`, so every template needs its own full
+  enrollment; the chip can't be filled quickly from one.
+- **No list command** has been seen in any capture, Linux or Windows; fprintd
+  lists prints from its own storage. Dell states only that readers with
+  ControlVault hold "more than 10" enrollments (KB 000370873). Capacity and
+  behavior when full are unknown; nobody has reported reaching it.
+- **Missing handles answer fast:** `0x0a` on a handle not on the chip returns
+  `0x1b` in about 14 ms, with or without the authorization block (the chip
+  checks existence before authorization). `0x2f` against a held capture
+  returns `0x1b` in about 40 ms. A real delete takes about 1.4 s.
+- **Brute-force clearing is possible but blunt.** Deleting every handle in the
+  24-bit space would take about 65 hours (16.7M × 14 ms), in resumable
+  chunks, with the reader unusable meanwhile. It would remove every template,
+  including the user's and probably Windows Hello's (Windows uses the same
+  authorization), and `0x0a` may be a generic object delete that also removes
+  other ControlVault objects. Finding templates without deleting them (match
+  each handle against one held capture) takes about 8 days. Neither is meant
+  for the driver; it is a last-resort recovery idea.
+
 ## Degraded state after suspend
 
 Observed 2026-10-02: after a suspend/resume the reader got into a state where
@@ -240,7 +270,7 @@ Sending `0x82` once (as the Windows driver does) restored normal behavior:
 | `0x00` | all | success | — |
 | `0x59` | `0x6c` | sample rejected (poor or partial press); header-only reply | ask for another press |
 | `0x85` | `0x66` | capture already pending; seen on the first `0x66` of every new client after another one exited | `0x68` cancel, retry `0x66` |
-| `0x8d` | `0x6e` | no completed enrollment to commit | error |
+| `0x8d` | `0x6e` | no completed enrollment to commit (also a second commit of the same result) | error |
 | `0x0d` | `0x6e` | malformed request; pending enrollment kept | bug |
 | `0x24` | `0x6e` | firmware `00412001`, commit with empty blocks: rejected, enrollment consumed | suggest firmware update |
 | `0x1b` | `0x2f`, `0x0a` | template handle not on the chip (deleted); tested 2026-10-02 | print not found |
@@ -262,7 +292,8 @@ handles; delete command.
 
 Still open:
 
-1. Listing templates stored on the chip; slot limit; behavior when full.
+1. Template capacity and behavior when full (no list command known; see
+   [Template storage](#template-storage)).
 2. Purpose of the `0x66` mode `0x48` call after a match, and of the `0x2f`
    constants `0x48` and `0x53e2`.
 4. Meaning of the `0x02` open parameters (`0x44`, app/user strings) and of
