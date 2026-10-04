@@ -2,16 +2,16 @@
 # Windows VM session with the ControlVault2 reader, recording usbmon on the
 # host (the capture continues through re-enumeration: it records the bus).
 #
-#   sudo bash vm-session.sh start           mask fprintd and pcscd, start the VM
-#   sudo bash vm-session.sh capture NAME    record windows-captures/NAME.pcap
+#   pkexec bash vm-session.sh start           mask fprintd and pcscd, start the VM
+#   pkexec bash vm-session.sh capture NAME    record windows-captures/NAME.pcap
 #                                           (stops any capture still running)
-#   sudo bash vm-session.sh stopcap         stop the capture
-#   sudo bash vm-session.sh reset           reset the reader on the host
+#   pkexec bash vm-session.sh stopcap         stop the capture
+#   pkexec bash vm-session.sh reset           disconnect and reconnect the reader
 #                                           (re-enumeration test)
-#   sudo bash vm-session.sh end             stop capture, shut the VM down,
+#   pkexec bash vm-session.sh end             stop capture, shut the VM down,
 #                                           restore fprintd and pcscd
 set -uo pipefail
-[[ $EUID -eq 0 ]] || { echo "run as root (sudo)" >&2; exit 1; }
+[[ $EUID -eq 0 ]] || { echo "run as root (pkexec or sudo)" >&2; exit 1; }
 HERE="$(cd "$(dirname "$0")" && pwd)"
 CAPDIR="$(cd "$HERE/../.." && pwd)/windows-captures"
 USER_NAME="${SUDO_USER:-${PKEXEC_UID:+$(id -nu "$PKEXEC_UID")}}"
@@ -57,10 +57,17 @@ case "${1:-}" in
     stopcap
     ;;
   reset)
-    read -r _ _ PORT ID <<<"$(reader)"
-    echo ">>> resetting $ID on port $PORT"
-    usbreset "$ID"
-    sleep 3
+    # Disable and re-enable the hub port: a real disconnect, so the reader
+    # re-enumerates with a new device number, like the chip's own resets
+    read -r BUS DEV PORT ID <<<"$(reader)"
+    if [[ $PORT == *.* ]]; then
+      HUB=${PORT%.*}; CTL=/sys/bus/usb/devices/$HUB:1.0/$HUB-port${PORT##*.}/disable
+    else
+      CTL=/sys/bus/usb/devices/$BUS-0:1.0/usb$BUS-port${PORT#*-}/disable
+    fi
+    echo ">>> cycling port $PORT ($ID, device $DEV)"
+    echo 1 > "$CTL"; sleep 2; echo 0 > "$CTL"
+    sleep 4
     echo ">>> reader now: $(reader)"
     $V dumpxml $VM | grep -A4 "<hostdev mode='subsystem' type='usb'" | grep -E "address bus|vendor|product"
     journalctl -t cv2-vm-usb --since "-1min" -o cat --no-pager
