@@ -1,0 +1,90 @@
+#!/usr/bin/python3
+"""Keep the ControlVault2 reader passed through to the Windows VM when it
+re-enumerates (after a reset, or as 0a5c:5831 while its firmware is
+flashed). Run by udev (90-cv2-vm-usb.rules) for the reader's USB port:
+
+  cv2-vm-usb add BUSNUM DEVNUM   attach the device now on that port
+  cv2-vm-usb remove              detach USB hostdevs whose device is gone
+
+Does nothing unless the VM is running. Logs to the journal (cv2-vm-usb).
+"""
+import os
+import subprocess
+import sys
+import syslog
+import tempfile
+import time
+import xml.etree.ElementTree as ET
+
+VM = 'win11'
+URI = 'qemu:///system'
+
+
+def log(msg):
+    syslog.syslog(syslog.LOG_INFO, msg)
+
+
+def virsh(*args):
+    return subprocess.run(['virsh', '-c', URI, *args], capture_output=True, text=True)
+
+
+def vm_running():
+    return virsh('domstate', VM).stdout.strip() == 'running'
+
+
+def usb_hostdevs():
+    """(element, bus, device) for each live USB hostdev with a host address."""
+    out = virsh('dumpxml', VM)
+    if out.returncode:
+        return
+    for hd in ET.fromstring(out.stdout).iter('hostdev'):
+        addr = hd.find('source/address')
+        if hd.get('type') == 'usb' and addr is not None and addr.get('bus'):
+            yield hd, int(addr.get('bus')), int(addr.get('device'))
+
+
+def run_with_xml(action, xml):
+    with tempfile.NamedTemporaryFile('w', suffix='.xml') as f:
+        f.write(xml)
+        f.flush()
+        return virsh(action, VM, f.name, '--live')
+
+
+def add(bus, dev):
+    if any((b, d) == (bus, dev) for _, b, d in usb_hostdevs()):
+        log('%03d/%03d already attached' % (bus, dev))
+        return
+    xml = ("<hostdev mode='subsystem' type='usb' managed='yes'><source>"
+           "<address bus='%d' device='%d'/></source></hostdev>" % (bus, dev))
+    for attempt in range(5):
+        r = run_with_xml('attach-device', xml)
+        if r.returncode == 0:
+            log('attached %03d/%03d to %s' % (bus, dev, VM))
+            return
+        time.sleep(1)
+    log('attaching %03d/%03d failed: %s' % (bus, dev, r.stderr.strip()))
+
+
+def remove():
+    for hd, bus, dev in list(usb_hostdevs()):
+        if not os.path.exists('/dev/bus/usb/%03d/%03d' % (bus, dev)):
+            r = run_with_xml('detach-device', ET.tostring(hd, encoding='unicode'))
+            log('detached stale %03d/%03d: %s' % (bus, dev, 'ok' if r.returncode == 0
+                                                  else r.stderr.strip()))
+
+
+def main():
+    syslog.openlog('cv2-vm-usb')
+    if not vm_running():
+        return
+    if sys.argv[1:2] == ['add'] and len(sys.argv) == 4:
+        remove()                     # a reset is a remove + add; tidy first
+        add(int(sys.argv[2], 10), int(sys.argv[3], 10))
+    elif sys.argv[1:2] == ['remove']:
+        remove()
+    else:
+        sys.exit(__doc__)
+
+
+if __name__ == '__main__':
+    main()
