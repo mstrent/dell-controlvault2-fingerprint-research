@@ -1,0 +1,25 @@
+diff --git a/tests/driver.test.in b/tests/driver.test.in
+index 6416eea6..cac07c30 100644
+--- a/tests/driver.test.in
++++ b/tests/driver.test.in
+@@ -1,5 +1,5 @@
+ [Test]
+-Type=session
++Type=@test_type@
+ # We can't use TestEnvironment as per
+ #  https://gitlab.gnome.org/GNOME/gnome-desktop-testing/-/issues/1
+ Exec=env @driver_env@ @installed_tests_execdir@/@umockdev_test_name@ @installed_tests_testdir@/@driver_test@
+diff --git a/tests/meson.build b/tests/meson.build
+index 0334dac3..6636992d 100644
+--- a/tests/meson.build
++++ b/tests/meson.build
+@@ -261,6 +261,9 @@ if get_option('introspection')
+                         'installed_tests_testdir': installed_tests_testdir,
+                         'umockdev_test_name': umockdev_test_name,
+                         'driver_test': driver_test,
++                        # A test that can't run in parallel runs alone
++                        'test_type': args.get('is_parallel', true) ?
++                            'session' : 'session-exclusive',
+                         'driver_env': ' '.join([
+                             driver_envs_str,
+                             'LD_LIBRARY_PATH=' + installed_tests_libdir,

@@ -30,7 +30,8 @@ Key documents here:
   - Push pipelines on the fork always fail with a runner-gating "privileges" message. Only the MR pipeline counts.
   - `test_scan_build` fails on upstream master too (elanspi, generated introspection code) and is allowed to fail. Keep `cv2` at zero warnings; reproduce locally with `SCANBUILD=$PWD/.gitlab-ci/scan-build ninja -C _build scan-build` (`meson setup _build -Ddrivers=all`).
   - `test_unsupported_list` fails until a maintainer removes `0a5c:5834` from the wiki's Unsupported-Devices page. Already requested in the MR.
-  - `egis_etu905` (an upstream test) is flaky and sometimes fails `test`/`test_asan`. Not ours.
+  - `egis_etu905` (an upstream test) is flaky and sometimes fails `test`/`test_asan`. Not ours. Retry the job.
+  - Our `cv2-cancel` can flake in `test_installed` (seen 2026-10-04 on 70d11824; it passed there before). `gnome-desktop-testing-runner` runs tests in parallel and ignores meson's `is_parallel: false`, so the known replay race strikes: the test cancels as the driver submits its interrupt read, and under load umockdev sees the cancel before matching the submit ("Reaping discard URB … without corresponding submit"). Deferring the cancel breaks the replay (umockdev then delivers the recorded empty completion). Current approach: retry the job. Fix if it keeps happening: `patches/installed-tests-session-exclusive.patch` (maps `is_parallel: false` to `Type=session-exclusive`; only affects `cv2-cancel`; touches shared `tests/driver.test.in`, so as a separate `tests:` commit).
 - Commit style: `cv2: …` or `tests/cv2: …`. Run `scripts/uncrustify.sh` after each commit and amend if it changes anything. End every commit message with `Co-Authored-By: Claude <noreply@anthropic.com>`. The MR discloses AI assistance.
 
 ## Build and test (libfprint)
