@@ -54,7 +54,8 @@ bytes, several USB packets). Relevant keys:
 | `USH_REL_UPGRADE_VER` | `00047026` (4.7.26, 2017; factory on a Latitude 7480) and `00412001` (4.12.001; factory on a 7490, also in Dell package 4.12.5.8): enrollment commit with empty arguments fails with `0x24` · `00412015` (4.12.015, Dell package 4.12.11.15): enrollment works either way |
 
 With the vendor's commit arguments (see [Commands](#commands)), `00412001`
-enrolls, matches and deletes (tested on a Precision 3520); `00047026` is
+enrolls, matches and deletes (tested on a Precision 3520 and a Latitude
+7490); `00047026` is
 untested with them. The driver logs the version at open and does not gate
 anything on it. Status `0x24` at commit gives an error that names the
 firmware and suggests Dell's ControlVault2 firmware package.

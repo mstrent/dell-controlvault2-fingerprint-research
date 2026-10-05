@@ -31,7 +31,7 @@ are public at <this repository's GitHub URL>
   `00047026` on a 7480). The driver sends the commit's attribute and
   authorization blocks the way Dell's Windows driver does, and with them
   `00412001` enrolls, matches and deletes with no update (tested on a
-  Precision 3520, below); `00412015` works either way; `00047026` is
+  Precision 3520 and a Latitude 7490, below); `00412015` works either way; `00047026` is
   untested with the blocks. The driver logs the firmware version at open
   (`0x39`). If a commit still fails with `0x24`, the error names the
   firmware and suggests the update: 4.12.015 ships only in Dell's
@@ -91,11 +91,18 @@ Tested on hardware:
   delete arguments and the per-capture `0x8a`.
 - Dell Precision 3520, firmware `00412001` (factory firmware that rejected
   commits without the blocks), tested independently by a user of the reader
-  with the current series
+  with the commit and delete arguments
   ([report](https://github.com/grosa787/dell-controlvault2-fingerprint-linux/issues/3#issuecomment-5984364510)):
   enroll (including the `0x85` and too-brief-touch retries), verify 3 of 3,
   rejecting a different finger, and delete with the authorization, with no
   firmware update.
+- Dell Latitude 7490, Ubuntu 22.04, firmware `00412001` (the factory
+  firmware the author's 7490 had before its update), tested independently
+  by another user of the reader
+  ([report](https://github.com/grosa787/dell-controlvault2-fingerprint-linux/issues/3#issuecomment-5984891551)):
+  enroll (including the `0x85` retry), verify 2 of 3 (one miss, as is usual
+  for this sensor), rejecting a different finger, and delete with the
+  authorization, with no firmware update.
 
 ### Housekeeping
 
@@ -171,7 +178,8 @@ bytes, several USB packets). Relevant keys:
 | `USH_REL_UPGRADE_VER` | `00047026` (4.7.26, 2017; factory on a Latitude 7480) and `00412001` (4.12.001; factory on a 7490, also in Dell package 4.12.5.8): enrollment commit with empty arguments fails with `0x24` · `00412015` (4.12.015, Dell package 4.12.11.15): enrollment works either way |
 
 With the vendor's commit arguments (see [Commands](#commands)), `00412001`
-enrolls, matches and deletes (tested on a Precision 3520); `00047026` is
+enrolls, matches and deletes (tested on a Precision 3520 and a Latitude
+7490); `00047026` is
 untested with them. The driver logs the version at open and does not gate
 anything on it. Status `0x24` at commit gives an error that names the
 firmware and suggests Dell's ControlVault2 firmware package.
