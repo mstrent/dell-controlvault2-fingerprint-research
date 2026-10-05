@@ -302,16 +302,52 @@ success only when the buffer ends on a list boundary. The list is the first
 run of handles before one repeats. The chip stayed healthy (`0x39` answered
 afterwards).
 
-Hypothesis for the type-1 hang: with no objects of the requested type, a
-fill-until-full loop never ends. If so, `0x71` would hang a chip with no
-fingerprint templates too. Untested on purpose: confirming it costs a power
-cycle. Still open: whether the list is complete.
+Whose templates (cvtool `match-each`: one capture per press, matched against
+each handle alone with `0x2f`; 2026-10-04). Every handle answered without
+`0x1b`, so all 8 exist on the chip:
+
+| Handle | Matched by | Owner |
+|---|---|---|
+| `006588a6` | right index (1 of 2 presses) | fprintd, right index (finger 7) |
+| `0038aa55` | left index (2 of 2) | fprintd, left index (finger 2) |
+| `0086c7ad`, `009e414a` | right index (2 of 2, 1 of 2) | not fprintd's; probably Windows Hello in the VM |
+| `00309409`, `00568474` | left index (2 of 2 each) | not fprintd's; probably Windows Hello in the VM |
+| `0036f0b7`, `00bcb3d1` | nothing (right/left middle and thumbs tried) | unknown finger, or a poor template |
+
+None of the 18 handles committed by Linux tools in `cvtool.log` is in the
+list, so the list does not hold stale Linux enrollments.
+
+**Empty list hangs the chip (confirmed 2026-10-04).** After all 8 templates
+were deleted with `0x0a` (6 with status 0 in ~1.5 s; a second pass gave
+`0x1b` for all 8), `0x71` type 7 with a 32-byte buffer got no reply and the
+chip hung as with type 1, until a power cycle. So the firmware fills the
+buffer by cycling over the matching objects, and with none it never
+finishes. A caller must know at least one object of the type exists, for
+example by matching or deleting a known handle first (`0x1b` = absent).
+Still open: whether the list is complete.
 
 **Hazard:** after the type-1 call the chip stopped answering, even `0x39`. A
 USB port disable/enable did not help: it then failed USB enumeration
-(`device descriptor read/64, error -110`) until power-cycled. Don't send
-`0x71` with any type other than 7, nor with type 7 to a chip that may hold
-no templates.
+(`device descriptor read/64, error -110`) until power-cycled. Never send
+`0x71` for a type that may have no objects: that includes type 7 on a chip
+with no templates.
+
+### Clearing everything
+
+The SDK has no fingerprint-only "delete all". Its candidates, from
+`cvmanager.c` (none tried):
+
+- `0x06` `CV_CMD_INIT`: `cv_init(session, clearObjects, suiteB, authList,
+  GCK, newAuthLists)` re-initializes the whole credential vault (new global
+  crypto key and admin authorization) and needs the current admin
+  authorization. Out of scope.
+- `0x89` `CV_CMD_ERASE_FLASH_CHIP`: erases the whole flash, firmware
+  included; the chip then sits in its bootloader. Never.
+- `0x5d` `CV_CMD_FINGERPRINT_RESET`: resets the sensor; deletes nothing.
+- `0x3a` `CV_HOST_STORAGE_DELETE_ALL_FILES`: host-side storage files.
+
+Clearing the chip therefore means `0x71` for the list (while it is
+non-empty) and one `0x0a` per handle.
 
 ## Template storage
 

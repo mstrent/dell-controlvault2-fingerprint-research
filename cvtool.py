@@ -234,6 +234,27 @@ def do_match(cv, handles, presses):
         cv.close()
 
 
+def do_match_each(cv, handles, fingers):
+    """One capture per finger, matched against each handle on its own, to
+    tell which stored templates belong to which finger."""
+    cv.open()
+    try:
+        for finger in fingers:
+            cv.capture_start()
+            print('>>> touch the sensor: %s' % finger, flush=True)
+            if not cv.wait_finger():
+                log('   no finger within 60 s'); break
+            res = []
+            for h in handles:
+                st, ok, _ = cv.match([h])
+                res.append('%08x:%s' % (h, ('0x%x' % st) if st else ('MATCH' if ok else '-')))
+            log('   %-14s %s' % (finger, ' '.join(res)))
+            cv.cancel()
+    finally:
+        cv.cancel()
+        cv.close()
+
+
 def do_stale_probe(cv, handles):
     """handles: valid,stale. Can a match without a capture test existence,
     and can one capture be matched again after a 0x1b?"""
@@ -582,7 +603,7 @@ def do_version(cv, flags):
 def main():
     global LOG
     ap = argparse.ArgumentParser()
-    ap.add_argument('action', choices=['commit-noenroll', 'enroll', 'commit-fill', 'enumerate', 'enumerate-direct', 'match', 'delete', 'version', 'stale-probe', 'capture-idle', 'capture-wait', 'reset-state', 'send-82'])
+    ap.add_argument('action', choices=['commit-noenroll', 'enroll', 'commit-fill', 'enumerate', 'enumerate-direct', 'match', 'match-each', 'delete', 'version', 'stale-probe', 'capture-idle', 'capture-wait', 'reset-state', 'send-82'])
     ap.add_argument('--commit', action='append', help='p3..p5 spec, e.g. "2:0 2:0 3:4096"')
     ap.add_argument('--max-presses', type=int, default=30)
     ap.add_argument('--handles', default='', help='comma-separated template handles (hex)')
@@ -592,6 +613,7 @@ def main():
     ap.add_argument('--max-commits', type=int, default=300)
     ap.add_argument('--type', type=int, default=CV_TYPE_FINGERPRINT, help='object type to enumerate')
     ap.add_argument('--spec', action='append', help='enumerate-direct: first argument(s) as "kind:len[:hex]", {h} = session handle')
+    ap.add_argument('--fingers', default='finger', help='match-each: comma-separated finger names, one press each')
     ap.add_argument('--types', default='', help='enumerate-direct: comma-separated types, session-handle blob only')
     ap.add_argument('--buflen', type=int, default=1024, help='bytes offered for the handle list')
     ap.add_argument('--probes', default='', help='enumerate: type:buflen,... (overrides --type/--buflen)')
@@ -622,6 +644,8 @@ def main():
             do_reset_state(cv)
         elif a.action == 'send-82':
             do_send_82(cv)
+        elif a.action == 'match-each':
+            do_match_each(cv, handles, a.fingers.split(','))
         elif a.action == 'match':
             do_match(cv, handles, a.presses)
         elif a.action == 'delete':
