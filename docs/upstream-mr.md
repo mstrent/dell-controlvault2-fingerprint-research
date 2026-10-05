@@ -6,17 +6,18 @@ reader (Broadcom BCM5880, USB `0a5c:5834`), as found in the Dell Latitude
 should behave the same). Until now this reader only worked through a proprietary
 libfprint-tod module.
 
-**Features:** enroll, verify, identify, delete. Prints store the chip's
-32-bit template handle (`"(u)"`); the chip can't list its templates, so there
-is no list/clear and fprintd's storage is the source of truth. Scan type
-press, 4 enroll stages.
+**Features:** enroll, verify, identify, delete, list. Prints store the
+chip's 32-bit template handle (`"(u)"`). List returns every fingerprint
+template on the chip, including other systems' (e.g. Windows Hello's), so
+there is no clear. Scan type press, 4 enroll stages.
 
 **Scope:** USB interface 0 only; the smart-card interfaces are untouched and
 the device is never reset.
 
-**Protocol:** worked out from USB captures only (no vendor code, headers or
-binaries; see Provenance for where the commit and delete arguments come
-from). The full write-up is below; the unit-test fixtures are bytes copied
+**Protocol:** worked out from USB captures, plus Broadcom's public Citadel
+SDK for the template list command and status names (no vendor binaries, no
+copied code; see Provenance, also for where the commit and delete arguments
+come from). The full write-up is below; the unit-test fixtures are bytes copied
 from those captures, and `tests/cv2*/custom.pcapng` are complete captures of
 the driver talking to the reader.
 Research notes, all the raw captures, the probe tool and the design notes
@@ -50,6 +51,11 @@ are public at <this repository's GitHub URL>
   the prints one at a time on the same capture, skipping missing ones, so one
   stale print doesn't block the user's other fingers. A single missing print
   is reported as `DATA_NOT_FOUND`.
+- **List and fprintd:** with list, fprintd checks its storage against the
+  chip after a failed match and removes prints the chip no longer holds.
+  fprintd deletes templates from the chip only when enrollment reports the
+  chip full, which the driver doesn't report, so other systems' templates
+  are never removed.
 - **Brief touches** (a finger event with a nonzero length) get "please try
   again"; an enrollment that hasn't finished after 30 accepted samples fails
   with a message to clean the sensor.
@@ -143,10 +149,18 @@ reader in a Dell Latitude 7490 owned by the author:
   sends them inside its protected session): enroll, verify, delete;
 - a small probe tool (Python, pyusb) that sends the commands seen in those
   captures, to test single behaviors (identify with several handles,
-  deleted handles, brief touches, the version query, `0x82`).
+  deleted handles, brief touches, the version query, `0x82`);
+- Broadcom's public Citadel SDK
+  ([sniten/citadel_sdk_2.1.1](https://github.com/sniten/citadel_sdk_2.1.1),
+  Apache-2.0), which holds ControlVault firmware and host source. Its
+  command and status numbering matches every command in the captures. It is
+  the source of the one command no capture shows, the template list
+  (`0x71`), and of the status names under [Status codes](#status-codes);
+  each was checked on the reader before use.
 
-No vendor code, headers or binaries were used. Command names describe the
-**observed behavior**. Facts not yet observed are listed under
+No vendor binaries were used and no SDK code was copied; the SDK served as
+documentation. Command names describe the **observed behavior**. Facts not
+yet observed are listed under
 [Open questions](#open-questions) rather than guessed.
 
 The merge request carries the evidence with it: the request and reply
@@ -257,17 +271,22 @@ is rejected with status `0x0d`.
 | `0x6d` | discard enrollment | 0 | `0:4 = 0` | — |
 | `0x2f` | match | session | `0:4` session, `0:4 = 0x48`, `0:4 = 0x53e2`, `0:4 = 0`, `2:4n` template handles | `0:4` match (1/0), `0:4` matched template handle (0 if none) |
 | `0x0a` | delete template | session | `0:4` session, `0:4` template handle, `2:21` authorization | — (~1.4 s) |
+| `0x71` | list templates | session | `0:4 = 20`, `0:20` owner hash (zeros), `0:4 = 7`, `3:1024` | `3:4n` template handles |
 
 Attributes are `00 00 04 00 04 00 00 00`. Authorization is
 `01 01 ff 00 00 00 0d 00 0c` followed by `"BroadcomWBF\0"`, 21 bytes. The
 vendor's Linux driver sends both blocks empty; with those, firmware
 `00412015` commits and deletes normally, older firmware rejects the commit
 (`0x24`). With the authorization, delete also removes templates committed
-without it. The meaning of the individual bytes is unknown.
+without it. In the SDK's terms the attributes are one flags attribute
+(type 0, length 4) with value 4, `CV_ATTRIB_NVRAM_STORAGE`: keep the
+template in the chip's flash. The meaning of the authorization bytes is
+unknown.
 
 Template handles are 32-bit values assigned by the chip at commit. They
 persist across sessions, reboots and power loss, and must be stored by the
-host with each print; the chip has no observed way to list them. The meaning
+host with each print; `0x71` lists them (see
+[List](#list)). The meaning
 of the `0x2f` constants `0x48` and `0x53e2` is unknown; they were identical in
 every capture.
 
@@ -352,6 +371,25 @@ wait for interrupt type 3
 0x04 close
 ```
 
+##### List
+
+```
+0x02 open
+0x71 list(20, zero hash, 7, 1024) → status 0 (~13 ms); 3:4n handles, 3:0 if none
+0x04 close
+```
+
+The SDK names `0x71` `CV_CMD_ENUMERATE_OBJECTS_DIRECT`. Its arguments are
+the byte length of a list of 20-byte owner hashes, the list, the object type
+(7, fingerprint) and the size offered for the reply. An owner hash is the
+SHA-1 of a session's app and user IDs; one of all zeros matches every owner,
+so the list includes templates enrolled by other systems, such as Windows
+Hello on the same laptop. The chip doesn't say which finger a template is
+for. The first argument must be the length of the hash list: the chip walks
+its storage once per hash, and a large value with nothing to list kept it
+busy until it was powered off. `0x0d`, the SDK's other enumerate command, is
+refused in this plaintext session (`0x100015`).
+
 #### Degraded state after suspend
 
 After a suspend/resume, the reader was seen to enter a state where enrollment
@@ -372,12 +410,19 @@ kept stored templates. The driver sends `0x82` at every open (about 0.7 s).
 | `0x00` | all | success | — |
 | `0x0d` | `0x6e` | malformed request; pending enrollment kept | protocol error |
 | `0x1b` | `0x2f`, `0x0a` | template handle not on the chip | `DATA_NOT_FOUND`; identify falls back to one handle at a time |
-| `0x24` | `0x6e` | firmware `00412001`, commit with empty arguments: rejected, enrollment consumed | `NOT_SUPPORTED` (firmware update suggested) |
+| `0x24` | `0x6e` | firmware `00412001`, commit with empty arguments: rejected, enrollment consumed (SDK: `CV_OBJECT_ATTRIBUTES_INVALID`; the empty block lacks the flags attribute) | `NOT_SUPPORTED` (firmware update suggested) |
 | `0x47` | `0x2f`, `0x66` | `0x2f` with an empty handle list; `0x66` mode `0x48` after a match | no match |
 | `0x59` | `0x6c` | sample rejected (poor or partial press) | retry |
 | `0x85` | `0x66` | capture already pending (first `0x66` after another client exited) | `0x68` cancel, retry once |
 | `0x89` | `0x6c`, `0x2f` | no usable capture (after a brief touch, or with no capture pending) | retry |
 | `0x8d` | `0x6e` | no completed enrollment to commit | protocol error |
+
+Not observed, from the SDK: when the chip is full, the commit (`0x6e`)
+fails with `0x25` (`CV_NO_PERSISTENT_OBJECT_ENTRY_AVAIL`: the flash
+directory holds 200 objects, shared with the chip's other objects) or `0x28`
+(`CV_FLASH_MEMORY_ALLOCATION_FAIL`). `0x71` with too small a reply buffer
+fails with `0x29` (`CV_ENUMERATION_BUFFER_FULL`). The driver reports all
+three as protocol errors.
 
 #### Security model
 
@@ -389,7 +434,9 @@ session instead, which is out of scope.
 
 #### Open questions
 
-1. Listing templates stored on the chip; slot limit; behavior when full.
+1. How many templates fit: the SDK's flash directory holds 200 objects of
+   any kind, and flash space may run out first. A full chip is not
+   observed.
 2. Exact meaning of `0x82`, and whether it is needed at every open or only
    after power events (it is cheap enough to send every time).
 3. Meaning of the `0x2f` constants `0x48`/`0x53e2`, of the `0x02` open
@@ -398,6 +445,6 @@ session instead, which is out of scope.
 4. Other finger-event lengths besides 0 and 7.
 5. Behavior on firmware other than `00412001` and `00412015` (for example
    `00047026` with the commit's attribute and authorization blocks).
-6. Meaning of the attribute and authorization bytes.
+6. Meaning of the authorization bytes.
 
 </details>

@@ -364,9 +364,12 @@ Tested 2026-10-04 (cvtool `commit-fill` and timed `delete`, `cvtool.log`).
   enrollment; the chip can't be filled quickly from one.
 - **No list command** has been seen in any capture, Linux or Windows; fprintd
   lists prints from its own storage, and so does Windows (see
-  [Windows flows](#windows-flows)). Dell states only that readers with
-  ControlVault hold "more than 10" enrollments (KB 000370873). Capacity and
-  behavior when full are unknown; nobody has reported reaching it.
+  [Windows flows](#windows-flows)). `0x71` lists them (see
+  [Enumerate direct](#enumerate-direct-0x71)); the open driver uses it for
+  libfprint's list (branch `cv2-list`, 2026-10-04). Dell states only that
+  readers with ControlVault hold "more than 10" enrollments (KB 000370873).
+  Nobody has reported reaching the limit; see
+  [Capacity and a full chip](#capacity-and-a-full-chip-sdk).
 - **Missing handles answer fast:** `0x0a` on a handle not on the chip returns
   `0x1b` in about 14 ms, with or without the authorization block (the chip
   checks existence before authorization). `0x2f` against a held capture
@@ -379,6 +382,44 @@ Tested 2026-10-04 (cvtool `commit-fill` and timed `delete`, `cvtool.log`).
   other ControlVault objects. Finding templates without deleting them (match
   each handle against one held capture) takes about 8 days. Neither is meant
   for the driver; it is a last-resort recovery idea.
+
+### Capacity and a full chip (SDK)
+
+Read 2026-10-04 in the Citadel SDK firmware source (`cvfphandler.c`
+`cv_fingerprint_commit_enrollment`, `cvobjstore.c` `cvPutObj`,
+`cvCreateDir0Entry`, `cvFindObjAtribFlags`, `cvinternal.h`). Not observed on
+the reader.
+
+- **Where templates go.** The commit (`0x6e`) saves the template as an object
+  of type 7 through the generic object store. The storage medium comes from
+  the flags attribute: our attribute block `00 00 04 00 04 00 00 00` is
+  attribute type 0 (`CV_ATTRIB_TYPE_FLAGS`), length 4, value 4
+  (`CV_ATTRIB_NVRAM_STORAGE`), i.e. the chip's flash. Without a flags
+  attribute the store fails with `CV_OBJECT_ATTRIBUTES_INVALID` (`0x24`),
+  which is what older firmware did with the stock driver's empty block.
+- **Handles.** A new handle is a random 24-bit value; for flash objects the
+  top byte stays 0 (host-disk objects get a directory page, 16–254, in the top
+  byte). This matches every handle seen.
+- **Capacity.** Flash objects live in directory page 0, which holds
+  `MAX_DIR_PAGE_0_ENTRIES` = 200 objects of every type (keys, certificates
+  and other ControlVault objects too), and each template takes flash space
+  (`MAX_FP_TEMPLATE_SIZE` 2048, "average" 1024 bytes). Nothing in the commit
+  path counts fingerprint templates.
+- **When full,** the commit fails with `0x25`
+  (`CV_NO_PERSISTENT_OBJECT_ENTRY_AVAIL`, no free page-0 entry) or `0x28`
+  (`CV_FLASH_MEMORY_ALLOCATION_FAIL`, no flash space). `0x26`
+  (`CV_OBJECT_DIRECTORY_FULL`) is only for host-disk objects. The open
+  driver reports all of them as protocol errors; mapping `0x25`/`0x28` to
+  libfprint's `DATA_FULL` would let fprintd delete chip templates it doesn't
+  know, so it waits for an owner-filtered list (below).
+- **Owner hash.** Each object records the SHA-1 of its session's app ID
+  followed by its user ID (`cvutilhandler.c`, open session; all zeros when
+  both are empty), and `0x71` with that hash lists only that owner's objects.
+  For our sessions that should be SHA-1(`"myAppIDmyUserID"`), assuming the
+  declared lengths (7 and 8) are the ones hashed. Untested.
+- **Match limit.** The SDK's fingerprint store rejects more than
+  `MAX_FP_TEMPLATES` = 50 templates per match (`cvFPSAInit`), so a `0x2f`
+  with more handles may fail. Untested.
 
 ## Windows flows
 
@@ -510,9 +551,12 @@ handles; delete command.
 
 Still open:
 
-1. Template capacity and behavior when full (the SDK has
-   `CV_OBJECT_DIRECTORY_FULL`, `0x26`); why enumerate (`0x0d`) is refused
-   with `0x100015` in a plaintext session (see [Enumerate](#enumerate-0x0d)).
+1. Template capacity and behavior when full on the reader (the SDK
+   predicts `0x25` or `0x28` at commit; see
+   [Capacity and a full chip](#capacity-and-a-full-chip-sdk)); whether `0x71`
+   with our owner hash lists only Linux-enrolled templates; why enumerate
+   (`0x0d`) is refused with `0x100015` in a plaintext session (see
+   [Enumerate](#enumerate-0x0d)).
 2. Purpose of the `0x66` mode `0x48` call after a match, and of the `0x2f`
    constants `0x48` and `0x53e2`.
 4. Meaning of the `0x02` open parameters (`0x44`, app/user strings) and of
@@ -520,6 +564,7 @@ Still open:
 5. Whether `0x8a` before each sample matters on any firmware (Windows sends
    it; the stock Linux driver doesn't; both work on `00412015`).
 6. Whether `00047026` (and other firmware before `00412001`) enrolls with the
-   commit's attribute and authorization blocks, and what those bytes mean.
+   commit's attribute and authorization blocks, and what the authorization
+   bytes mean (the attributes are decoded above).
 7. What `0x9a` reports after a sign-in (this chip does not implement it:
    `0x57` is `CV_INVALID_COMMAND`; see [`0x9a`](#0x9a)).
