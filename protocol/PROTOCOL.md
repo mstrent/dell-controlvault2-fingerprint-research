@@ -324,7 +324,13 @@ chip hung as with type 1, until a power cycle. So the firmware fills the
 buffer by cycling over the matching objects, and with none it never
 finishes. A caller must know at least one object of the type exists, for
 example by matching or deleting a known handle first (`0x1b` = absent).
-Still open: whether the list is complete.
+After a power cycle and a fresh fprintd enrollment of two fingers, `0x71`
+type 7 returned exactly their two handles (`00e66cc0`, `004a3866`, as in
+fprintd's print files): buffer 8 → status 0, both handles; buffer 12 →
+`0x29`, both plus the first again. The chip stayed healthy. So on a chip
+known to hold templates, `0x71` with a buffer of 4 × N bytes lists them,
+N being found from the repeat (or a buffer that is a multiple of the count).
+Still open: whether the list is complete when it is long (more than 8).
 
 **Hazard:** after the type-1 call the chip stopped answering, even `0x39`. A
 USB port disable/enable did not help: it then failed USB enumeration
