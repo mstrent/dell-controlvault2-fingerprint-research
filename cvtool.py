@@ -547,15 +547,39 @@ def _enumerate(cv, obj_type, buflen, header_flags=FLAGS_SYNC):
         log('   status 0x%x, no output parameters' % st)
 
 
-def do_enumerate_direct(cv, obj_type, buflen, blobs=None):
-    """0x71: like 0x0d, but with two leading arguments the SDK doesn't
-    explain. By default they are tried as one length/value pair (kind 2)
-    holding the session handle, the app or user ID, or nothing (all answer
-    status 0 with an empty list). --spec sends other layouts.
+def do_enum_hashes(cv, obj_types, buflen):
+    """0x71 called the way the SDK's cv_enumerate_objects_direct expects:
+    arg 0 is the byte length of a list of 20-byte owner hashes, arg 1 is that
+    list, arg 2 is the object type, arg 3 the buffer offer. One all-zero hash
+    (length 20) makes the firmware's cvEnumObj set enumerateAll and list every
+    object of the type in exactly one directory walk, so it terminates even
+    when nothing matches (no runaway loop, no hang)."""
+    SHA1_LEN = 20
+    cv.open()
+    try:
+        for obj_type in obj_types:
+            log('\n== enum (one zero hash) type %d, buffer %d ==' % (obj_type, buflen))
+            t0 = time.monotonic()
+            st, r = cv.call(0x71, [param(0, u32(SHA1_LEN)), param(0, b'\0' * SHA1_LEN),
+                                   param(0, u32(obj_type)), param(3, b'', buflen)], quiet=True)
+            dt = time.monotonic() - t0
+            params = parse_params(r) if len(r) > 0x2c else []
+            handles = []
+            if params:
+                k, ln, d = params[0]
+                handles = [struct.unpack_from('<I', d, o)[0] for o in range(0, ln - ln % 4, 4)]
+            log('   status 0x%x after %.3f s, %d handle(s): %s' % (st, dt, len(handles),
+                ' '.join('%08x' % h for h in handles)))
+    finally:
+        cv.close()
 
-    WARNING (2026-10-04, firmware 00412015): --spec "0:4:{h} 0:4:{h}" with
-    type 7 lists the stored templates, but the same arguments with type 1 hung
-    the chip: no reply, then no USB enumeration until a power cycle."""
+
+def do_enumerate_direct(cv, obj_type, buflen, blobs=None):
+    """0x71 exploration kept for the record. Its real arguments are a
+    hash-list length, the hashes, the type and a buffer (see do_enum_hashes,
+    which is the correct and safe way to call it). The variants here that put
+    the session handle in the length field drive numHashs to ~16.7M and hang
+    the chip when nothing fills the buffer; use enum-hashes instead."""
     cv.open()
     try:
         variants = [('session handle', u32(cv.handle), cv.handle),
@@ -603,7 +627,7 @@ def do_version(cv, flags):
 def main():
     global LOG
     ap = argparse.ArgumentParser()
-    ap.add_argument('action', choices=['commit-noenroll', 'enroll', 'commit-fill', 'enumerate', 'enumerate-direct', 'match', 'match-each', 'delete', 'version', 'stale-probe', 'capture-idle', 'capture-wait', 'reset-state', 'send-82'])
+    ap.add_argument('action', choices=['commit-noenroll', 'enroll', 'commit-fill', 'enumerate', 'enumerate-direct', 'enum-hashes', 'match', 'match-each', 'delete', 'version', 'stale-probe', 'capture-idle', 'capture-wait', 'reset-state', 'send-82'])
     ap.add_argument('--commit', action='append', help='p3..p5 spec, e.g. "2:0 2:0 3:4096"')
     ap.add_argument('--max-presses', type=int, default=30)
     ap.add_argument('--handles', default='', help='comma-separated template handles (hex)')
@@ -644,6 +668,8 @@ def main():
             do_reset_state(cv)
         elif a.action == 'send-82':
             do_send_82(cv)
+        elif a.action == 'enum-hashes':
+            do_enum_hashes(cv, [int(x, 0) for x in a.types.split(',')] if a.types else [a.type], a.buflen)
         elif a.action == 'match-each':
             do_match_each(cv, handles, a.fingers.split(','))
         elif a.action == 'match':

@@ -268,75 +268,69 @@ so why it refuses is still unknown. Also refused: types 0, 2–6, 9, 11 and 12
 
 ### Enumerate direct (`0x71`)
 
-The SDK's `CV_CMD_ENUMERATE_OBJECTS_DIRECT`. Its dispatcher (`cvmanager.c`)
-calls `cv_enumerate_objects_direct(u32, u8 *, type, &len, list)` with the
-same in/out buffer as `0x0d`; the first two arguments are not documented.
-Tested 2026-10-04 with cvtool `enumerate-direct` (firmware `00412015`, inside
-an open session, header flags `0x0440`, buffer offer 1024):
+The SDK's `CV_CMD_ENUMERATE_OBJECTS_DIRECT`, and the only working way to list
+stored objects on this reader (`0x0d` is refused). The firmware source is in
+the SDK after all (`cvobjhandler.c` `cv_enumerate_objects_direct`,
+`cvobjstore.c` `cvEnumObj`; the files have CRLF endings and non-ASCII bytes,
+which hid them from a first grep). The four arguments are:
 
-| First argument(s) | Type | Result |
+| # | Kind | Argument |
 |---|---|---|
-| one kind-2 pair: session handle, `myAppID\0`, `myUserID` or empty | 0–16 | status 0, `3:0` (empty list), ~10 ms. Types 13–16 don't exist, so the lookup isn't really happening |
-| `0:4` 0, 1 or 7, then `0:4` session handle | 1, 7 | status 0, empty list |
-| `0:4` 8, then `0:8` `myAppID\0` or `myUserID` | 7 | status 0, empty list |
-| **`0:4` session handle, then `0:4` session handle** (or `0:8 myAppID\0`) | **7** | **status 0, `3:1024` holding 8 distinct 24-bit handles** (`0036f0b7 0086c7ad 0038aa55 00bcb3d1 006588a6 009e414a 00309409 00568474`), the 32-byte pattern repeated to fill the buffer |
-| `0:4` session handle, then `0:4` session handle | 1 | **no reply; the chip hung** |
+| 0 | 0 | **byte length of the owner-hash list** (`= 20 × N`) |
+| 1 | 0 | N × 20-byte owner hashes (SHA-1 of appID+userID; all-zero = match any owner) |
+| 2 | 0 | object type (7 = fingerprint) |
+| 3 | 3 | output buffer offer |
 
-The list is real: it contains both templates fprintd holds for this laptop's
-enrolled fingers (`0038aa55`, `006588a6`). The other six are probably Windows
-Hello enrollments from the VM and leftovers. The first argument appears to be
-the session handle (a firmware heap pointer); the second didn't matter for
-type 7.
+The firmware computes `numHashs = arg0 / 20` and, for each hash, does one
+directory walk (`cvEnumObj`), appending the matching handles; it stops early
+only when the output buffer fills. An all-zero hash makes `cvEnumObj` set its
+`enumerateAll` flag and return every object of the type.
 
-Buffer sizes, same arguments, type 7 (after a power cycle, 2026-10-04):
+**Correct call (cvtool `enum-hashes`, 2026-10-04, firmware `00412015`):**
+arg0 = 20, one all-zero hash, inside an open session.
 
-| Buffer offer | Status | Returned |
+| Type | Buffer | Result |
 |---|---|---|
-| 0 | `0x0` | `3:0`, empty (not `0x29` with the length needed) |
-| 32 | `0x0` | exactly the 8 handles |
-| 36 | `0x29` (`CV_ENUMERATION_BUFFER_FULL`) | `3:36`: the 8 handles, then the first again |
-| 64 | `0x0` | the 8 handles twice |
+| 1 (certificate; none stored) | 1024 | status 0, empty list, 12 ms |
+| 7, chip holds 2 templates | 1024 | status 0, exactly `00e66cc0 004a3866`, 13 ms |
 
-So the chip cycles through its list until the buffer is full, and reports
-success only when the buffer ends on a list boundary. The list is the first
-run of handles before one repeats. The chip stayed healthy (`0x39` answered
-afterwards).
+So `0x71` lists objects **safely even when none exist** — no hang, no
+repetition, one directory walk. This answers the earlier open question.
 
-Whose templates (cvtool `match-each`: one capture per press, matched against
-each handle alone with `0x2f`; 2026-10-04). Every handle answered without
-`0x1b`, so all 8 exist on the chip:
+#### Why the session handle hung the chip (not a firmware bug)
+
+The first probes passed the session handle as argument 0. The firmware read
+it as the hash-list length, so `numHashs = handle / 20 ≈ 16.7 million`. The
+loop then ran one full directory walk per iteration and only broke when the
+buffer filled:
+
+- Objects present + buffer fills → breaks on the first iteration → fast. The
+  "repeated" list was the same short result written over and over as `bufPtr`
+  advanced, until the buffer boundary gave status 0 (or `0x29` otherwise).
+- Nothing matches (empty chip, or a type with no objects) → the buffer never
+  fills → ~16.7M directory walks → the chip appears hung. Recovering it needed
+  a full power cycle; a USB port disable/enable did not (it then failed USB
+  enumeration, `device descriptor read/64, error -110`).
+
+So the hang and the repetition were both the malformed length, not a bug. A
+well-formed call (small `numHashs`) has neither.
+
+#### The templates found on this reader (before the wipe)
+
+Eight handles existed, identified with cvtool `match-each` (one capture per
+press, each matched alone with `0x2f`; every handle answered without `0x1b`):
 
 | Handle | Matched by | Owner |
 |---|---|---|
-| `006588a6` | right index (1 of 2 presses) | fprintd, right index (finger 7) |
-| `0038aa55` | left index (2 of 2) | fprintd, left index (finger 2) |
-| `0086c7ad`, `009e414a` | right index (2 of 2, 1 of 2) | not fprintd's; probably Windows Hello in the VM |
-| `00309409`, `00568474` | left index (2 of 2 each) | not fprintd's; probably Windows Hello in the VM |
-| `0036f0b7`, `00bcb3d1` | nothing (right/left middle and thumbs tried) | unknown finger, or a poor template |
+| `006588a6` | right index | fprintd, right index |
+| `0038aa55` | left index | fprintd, left index |
+| `0086c7ad`, `009e414a` | right index | extra right-index templates, probably Windows Hello (VM) |
+| `00309409`, `00568474` | left index | extra left-index templates, probably Windows Hello (VM) |
+| `0036f0b7`, `00bcb3d1` | nothing (middles, thumbs tried) | unknown finger or poor template |
 
-None of the 18 handles committed by Linux tools in `cvtool.log` is in the
-list, so the list does not hold stale Linux enrollments.
-
-**Empty list hangs the chip (confirmed 2026-10-04).** After all 8 templates
-were deleted with `0x0a` (6 with status 0 in ~1.5 s; a second pass gave
-`0x1b` for all 8), `0x71` type 7 with a 32-byte buffer got no reply and the
-chip hung as with type 1, until a power cycle. So the firmware fills the
-buffer by cycling over the matching objects, and with none it never
-finishes. A caller must know at least one object of the type exists, for
-example by matching or deleting a known handle first (`0x1b` = absent).
-After a power cycle and a fresh fprintd enrollment of two fingers, `0x71`
-type 7 returned exactly their two handles (`00e66cc0`, `004a3866`, as in
-fprintd's print files): buffer 8 → status 0, both handles; buffer 12 →
-`0x29`, both plus the first again. The chip stayed healthy. So on a chip
-known to hold templates, `0x71` with a buffer of 4 × N bytes lists them,
-N being found from the repeat (or a buffer that is a multiple of the count).
-Still open: whether the list is complete when it is long (more than 8).
-
-**Hazard:** after the type-1 call the chip stopped answering, even `0x39`. A
-USB port disable/enable did not help: it then failed USB enumeration
-(`device descriptor read/64, error -110`) until power-cycled. Never send
-`0x71` for a type that may have no objects: that includes type 7 on a chip
-with no templates.
+None matched the 18 handles that Linux tools committed in `cvtool.log`, so the
+chip held no stale Linux enrollments. All 8 were deleted with per-handle
+`0x0a` (status 0, ~1.5 s each; a second pass gave `0x1b` for all).
 
 ### Clearing everything
 
@@ -352,8 +346,8 @@ The SDK has no fingerprint-only "delete all". Its candidates, from
 - `0x5d` `CV_CMD_FINGERPRINT_RESET`: resets the sensor; deletes nothing.
 - `0x3a` `CV_HOST_STORAGE_DELETE_ALL_FILES`: host-side storage files.
 
-Clearing the chip therefore means `0x71` for the list (while it is
-non-empty) and one `0x0a` per handle.
+Clearing the chip therefore means `0x71` (enum-hashes, one zero hash) for the
+list and one `0x0a` per handle. Both are safe when the list is empty.
 
 ## Template storage
 
