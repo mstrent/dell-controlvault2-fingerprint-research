@@ -282,20 +282,52 @@ variants were seen: `0x0241`/`0x0243` (enrollment, identify) and
 | Disable/enable the devices in Device Manager | `08` | `0x82`, then `0x82` and `0x39` ×2 on re-enable. Nothing else |
 | Sign in / unlock | `09`, `11` | `0x66` → `0x73` (identify) → `0x66` → **`0x9a`** → … → `0x68` |
 | Failed attempts, then success | `12` | `0x73` per attempt; **`0x9a` only after the successful one** |
+| List enrollments through the WinBio API (`WinBioEnumEnrollments`) | `14` | **`0x82` only** (when the client connects); the answer comes from Windows' database file |
+| Open the device's Dell "Versioning" property tab | `15` | `0x39` only (it shows the firmware version) |
+| Delete Windows' database file, restart the service | `16` | `0x82` only. Windows creates an empty database and never asks the chip; the API then reports no enrollments (`WINBIO_E_UNKNOWN_ID`) and the lock screen offers no fingerprint option |
+| Sign in with a PIN | `16` | **`0x9a`** (no fingerprint involved) |
 
 So Windows has no list, enumerate or clear command in its flows: it keeps its
-own list of template handles and deletes them one at a time.
+own list of template handles and deletes them one at a time, and does not
+rebuild that list from the chip when it is lost.
 
 ### `0x9a`
 
 Plaintext (flags `0x0040`, no session), one `u32` parameter, sent once after
-each **successful** sign-in or unlock (5 of 5 captures), never after a failed
-identify or an enrollment's duplicate check. The parameter differs every time
-(`0x2b4c125e`, `0xf1eec6a1`, `0x08ec4787`, `0x419f2dbb`, `0x196869de`), so it
-is not a user or template ID. It always fails with status **`0x57`** in about
-13 ms, and Windows carries on. Behaviorally: Windows reports a successful
-sign-in to the chip with a fresh value, and this chip refuses it. The open
-driver does not send it.
+each **successful sign-in or unlock, by fingerprint or by PIN** (6 of 6
+captures; capture `16` was a PIN sign-in with no fingerprint option offered),
+never after a failed identify or an enrollment's duplicate check. The
+parameter differs every time (`0x2b4c125e`, `0xf1eec6a1`, `0x08ec4787`,
+`0x419f2dbb`, `0x196869de`, `0x0b53b38a`), so it is not a user or template ID.
+It always fails with status **`0x57`** in about 13 ms, and Windows carries on.
+Behaviorally: a "user signed in" notification with a fresh value, unrelated
+to matching, which this chip refuses. The open driver does not send it.
+
+### Windows host side
+
+Read-only inventory of the installed package (4.12.11.15) and the running
+system, 2026-10-04:
+
+- **Components:** the `cvusbdrv` driver (the ControlVault device), the
+  Windows Hello driver and its engine/sensor/storage plug-ins, and three
+  services: "Credential Vault Upgrade Service", "Host Control Service for
+  Fingerprint Processing" and "Credential Vault Host Storage — Host Storage
+  Service for Persisting CV Objects into Hard drive". No management or
+  diagnostic tool. Dell's only Device Manager tab ("Versioning") shows the
+  firmware version (`0x39`). The package's driver also claims `0a5c:5833`
+  with the same description as `5834`.
+- **Host storage:** `ProgramData\Broadcom\HostStorage` holds four small files
+  (`appIDs.dat` 276 B, `userSIDs.dat` 72 B, `userSIDxr.dat` 2480 B,
+  `sess.dat` 12 B). Their sizes did not change with enrollments, so they are
+  app/user/session bookkeeping, not templates; templates stay on the chip.
+- **Windows' database:** one file per biometric database
+  (`WinBioDatabase\EFBD8DB5-….DAT` for Dell's), holding the user ↔ template
+  records that Settings, the API and the lock screen read.
+- **Logging:** no Dell trace providers or event logs. Windows'
+  `Microsoft-Windows-Biometrics/Operational` log shows, before re-enrolling,
+  "failed to delete a database record" with `WINBIO_E_DATABASE_NO_SUCH_RECORD`
+  (Windows clearing its own records, not the chip's), and a "secure component"
+  that cannot start in a VM (Enhanced Sign-in Security; unrelated).
 
 ### Other commands seen
 
@@ -358,4 +390,5 @@ Still open:
    it; the stock Linux driver doesn't; both work on `00412015`).
 6. Whether `00047026` (and other firmware before `00412001`) enrolls with the
    commit's attribute and authorization blocks, and what those bytes mean.
-7. What `0x9a` is for and why it fails with `0x57` (see [`0x9a`](#0x9a)).
+7. What exactly `0x9a` reports after a sign-in, and why this chip refuses
+   it with `0x57` (see [`0x9a`](#0x9a)).
