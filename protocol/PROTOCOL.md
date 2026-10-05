@@ -288,15 +288,30 @@ Hello enrollments from the VM and leftovers. The first argument appears to be
 the session handle (a firmware heap pointer); the second didn't matter for
 type 7.
 
-Open: why the 8 handles repeat to fill the whole buffer instead of the reply
-length being 32 (a firmware bug, or the length is not clamped, which would
-also explain a crash); whether the list is complete; and why type 1 hangs.
+Buffer sizes, same arguments, type 7 (after a power cycle, 2026-10-04):
+
+| Buffer offer | Status | Returned |
+|---|---|---|
+| 0 | `0x0` | `3:0`, empty (not `0x29` with the length needed) |
+| 32 | `0x0` | exactly the 8 handles |
+| 36 | `0x29` (`CV_ENUMERATION_BUFFER_FULL`) | `3:36`: the 8 handles, then the first again |
+| 64 | `0x0` | the 8 handles twice |
+
+So the chip cycles through its list until the buffer is full, and reports
+success only when the buffer ends on a list boundary. The list is the first
+run of handles before one repeats. The chip stayed healthy (`0x39` answered
+afterwards).
+
+Hypothesis for the type-1 hang: with no objects of the requested type, a
+fill-until-full loop never ends. If so, `0x71` would hang a chip with no
+fingerprint templates too. Untested on purpose: confirming it costs a power
+cycle. Still open: whether the list is complete.
 
 **Hazard:** after the type-1 call the chip stopped answering, even `0x39`. A
 USB port disable/enable did not help: it then failed USB enumeration
 (`device descriptor read/64, error -110`) until power-cycled. Don't send
-`0x71` with any type other than 7, and treat even type 7 as risky until the
-repetition is understood.
+`0x71` with any type other than 7, nor with type 7 to a chip that may hold
+no templates.
 
 ## Template storage
 
