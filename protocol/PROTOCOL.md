@@ -257,8 +257,46 @@ Request: `0:4` session, `0:4` type, `3:N` (buffer offer). On this reader
 and with "suppress UI prompts" set at open (option `0x08`), in the header
 (`0x0200`), or both. It is not `0x57` (unknown command), so the chip
 implements `0x0d` but refuses it in this plaintext session. `0x100015` is in
-the SDK's "user interface" return-code range (`0x00100000` mask); its exact
-meaning for this firmware is not established.
+the SDK's "user interface" return-code range (`0x00100000` mask). The SDK's
+host-library copy of the status list (`load_sbi/inc/common/cvapi.h`), the
+newest of its three copies, names it `CV_UI_FAILED_EVENT`; the same list
+gives `0x85` = `CV_FP_DEVICE_BUSY` and `0x8d` = `CV_NO_VALID_FP_TEMPLATE`,
+which match their observed meanings. The firmware's own copy ends at
+`0x100014`. The firmware source of `cv_enumerate_objects` is not in the SDK,
+so why it refuses is still unknown. Also refused: types 0, 2–6, 9, 11 and 12
+(2026-10-04 21:30).
+
+### Enumerate direct (`0x71`)
+
+The SDK's `CV_CMD_ENUMERATE_OBJECTS_DIRECT`. Its dispatcher (`cvmanager.c`)
+calls `cv_enumerate_objects_direct(u32, u8 *, type, &len, list)` with the
+same in/out buffer as `0x0d`; the first two arguments are not documented.
+Tested 2026-10-04 with cvtool `enumerate-direct` (firmware `00412015`, inside
+an open session, header flags `0x0440`, buffer offer 1024):
+
+| First argument(s) | Type | Result |
+|---|---|---|
+| one kind-2 pair: session handle, `myAppID\0`, `myUserID` or empty | 0–16 | status 0, `3:0` (empty list), ~10 ms. Types 13–16 don't exist, so the lookup isn't really happening |
+| `0:4` 0, 1 or 7, then `0:4` session handle | 1, 7 | status 0, empty list |
+| `0:4` 8, then `0:8` `myAppID\0` or `myUserID` | 7 | status 0, empty list |
+| **`0:4` session handle, then `0:4` session handle** (or `0:8 myAppID\0`) | **7** | **status 0, `3:1024` holding 8 distinct 24-bit handles** (`0036f0b7 0086c7ad 0038aa55 00bcb3d1 006588a6 009e414a 00309409 00568474`), the 32-byte pattern repeated to fill the buffer |
+| `0:4` session handle, then `0:4` session handle | 1 | **no reply; the chip hung** |
+
+The list is real: it contains both templates fprintd holds for this laptop's
+enrolled fingers (`0038aa55`, `006588a6`). The other six are probably Windows
+Hello enrollments from the VM and leftovers. The first argument appears to be
+the session handle (a firmware heap pointer); the second didn't matter for
+type 7.
+
+Open: why the 8 handles repeat to fill the whole buffer instead of the reply
+length being 32 (a firmware bug, or the length is not clamped, which would
+also explain a crash); whether the list is complete; and why type 1 hangs.
+
+**Hazard:** after the type-1 call the chip stopped answering, even `0x39`. A
+USB port disable/enable did not help: it then failed USB enumeration
+(`device descriptor read/64, error -110`) until power-cycled. Don't send
+`0x71` with any type other than 7, and treat even type 7 as risky until the
+repetition is understood.
 
 ## Template storage
 

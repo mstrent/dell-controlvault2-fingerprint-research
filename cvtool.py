@@ -18,6 +18,7 @@ Usage (as root, with fprintd stopped; see run-cvtool.sh):
   cvtool.py commit-fill --handles-file F [--max-commits N]
   cvtool.py delete (--handles H,H | --handles-file F) [--auth]
   cvtool.py enumerate [--type 7] [--buflen 1024]
+  cvtool.py enumerate-direct [--type 7] [--buflen 1024]
 Each --commit is the p3..p5 spec "kind:len[:hex]"; they are tried in order on
 the same enrollment until one returns status 0. Default: the stock layout.
 """
@@ -33,7 +34,10 @@ ALLOWED = {0x02: 'open', 0x04: 'close', 0x66: 'capture_start', 0x68: 'capture_ca
            # Read-only; ID and parameters from Broadcom's Apache-2.0 Citadel SDK
            # (sniten/citadel_sdk_2.1.1: CV_CMD_ENUMERATE_OBJECTS in cvinternal.h,
            # its dispatcher in cvmanager.c, cv_obj_type in cvapi.h)
-           0x0d: 'enumerate_objects'}
+           0x0d: 'enumerate_objects',
+           # Read-only; CV_CMD_ENUMERATE_OBJECTS_DIRECT (cvmanager.c passes
+           # a length/value pair, the object type and an in/out buffer)
+           0x71: 'enumerate_objects_direct'}
 CV_TYPE_FINGERPRINT = 7
 FLAGS_SYNC, FLAGS_ASYNC = 0x0440, 0x0442
 # The commit's attribute and authorization blocks and the delete's
@@ -522,6 +526,45 @@ def _enumerate(cv, obj_type, buflen, header_flags=FLAGS_SYNC):
         log('   status 0x%x, no output parameters' % st)
 
 
+def do_enumerate_direct(cv, obj_type, buflen, blobs=None):
+    """0x71: like 0x0d, but with two leading arguments the SDK doesn't
+    explain. By default they are tried as one length/value pair (kind 2)
+    holding the session handle, the app or user ID, or nothing (all answer
+    status 0 with an empty list). --spec sends other layouts.
+
+    WARNING (2026-10-04, firmware 00412015): --spec "0:4:{h} 0:4:{h}" with
+    type 7 lists the stored templates, but the same arguments with type 1 hung
+    the chip: no reply, then no USB enumeration until a power cycle."""
+    cv.open()
+    try:
+        variants = [('session handle', u32(cv.handle), cv.handle),
+                    ('session handle, header 0', u32(cv.handle), 0),
+                    ('app ID', b'myAppID\0', cv.handle),
+                    ('user ID', b'myUserID', cv.handle),
+                    ('empty', b'', cv.handle),
+                    ('empty, header 0', b'', 0)]
+        if blobs and blobs[0].startswith('spec:'):
+            # raw replacements for the first argument(s), "kind:len[:hex]" each
+            variants = [(b[5:], b''.join(parse_spec(b[5:].replace('{h}', u32(cv.handle).hex()))), cv.handle)
+                        for b in blobs]
+        if blobs is not None and not blobs[0].startswith('spec:'):
+            variants = [(v, b, h) for v, b, h in variants if v in blobs]
+        for label, blob, hh in variants:
+            log('\n== enumerate direct, type %d, buffer %d, blob: %s ==' % (obj_type, buflen, label))
+            t0 = time.monotonic()
+            first = blob if label.startswith(('0:', '1:', '2:', '3:')) else param(2, blob)
+            st, r = cv.call(0x71, [first, param(0, u32(obj_type)), param(3, b'', buflen)],
+                            hdr_handle=hh, quiet=True)
+            log('   reply after %.3f s' % (time.monotonic() - t0))
+            for i, (k, ln, d) in enumerate(parse_params(r) if len(r) > 0x2c else []):
+                handles = [struct.unpack_from('<I', d, o)[0] for o in range(0, ln - ln % 4, 4)]
+                log('   out param %d: kind=%d len=%d handles: %s' % (i, k, ln,
+                    ' '.join('%08x' % h for h in handles)))
+            log('   status 0x%x' % st)
+    finally:
+        cv.close()
+
+
 def do_version(cv, flags):
     try:
         st, r = cv.call(0x39, [param(0, u32(0))], hdr_handle=0, flags=flags, quiet=True)
@@ -539,7 +582,7 @@ def do_version(cv, flags):
 def main():
     global LOG
     ap = argparse.ArgumentParser()
-    ap.add_argument('action', choices=['commit-noenroll', 'enroll', 'commit-fill', 'enumerate', 'match', 'delete', 'version', 'stale-probe', 'capture-idle', 'capture-wait', 'reset-state', 'send-82'])
+    ap.add_argument('action', choices=['commit-noenroll', 'enroll', 'commit-fill', 'enumerate', 'enumerate-direct', 'match', 'delete', 'version', 'stale-probe', 'capture-idle', 'capture-wait', 'reset-state', 'send-82'])
     ap.add_argument('--commit', action='append', help='p3..p5 spec, e.g. "2:0 2:0 3:4096"')
     ap.add_argument('--max-presses', type=int, default=30)
     ap.add_argument('--handles', default='', help='comma-separated template handles (hex)')
@@ -548,6 +591,8 @@ def main():
     ap.add_argument('--handles-file', default=None, help='file of hex handles, one per line')
     ap.add_argument('--max-commits', type=int, default=300)
     ap.add_argument('--type', type=int, default=CV_TYPE_FINGERPRINT, help='object type to enumerate')
+    ap.add_argument('--spec', action='append', help='enumerate-direct: first argument(s) as "kind:len[:hex]", {h} = session handle')
+    ap.add_argument('--types', default='', help='enumerate-direct: comma-separated types, session-handle blob only')
     ap.add_argument('--buflen', type=int, default=1024, help='bytes offered for the handle list')
     ap.add_argument('--probes', default='', help='enumerate: type:buflen,... (overrides --type/--buflen)')
     ap.add_argument('--open-options', default='0x44', help='enumerate: session options for 0x02 (0x08 = suppress UI prompts)')
@@ -585,6 +630,10 @@ def main():
             probes = ([tuple(int(x, 0) for x in p.split(':')) for p in a.probes.split(',')]
                       if a.probes else [(a.type, a.buflen)])
             do_enumerate(cv, probes, int(a.open_options, 0), int(a.header_flags, 0))
+        elif a.action == 'enumerate-direct':
+            for t in ([int(x, 0) for x in a.types.split(',')] if a.types else [a.type]):
+                do_enumerate_direct(cv, t, a.buflen, ['spec:' + x for x in a.spec] if a.spec else
+                                    ['session handle'] if a.types else None)
         elif a.action == 'commit-fill':
             if not a.handles_file:
                 sys.exit('commit-fill needs --handles-file')
