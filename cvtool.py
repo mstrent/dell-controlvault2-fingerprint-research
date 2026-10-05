@@ -17,6 +17,7 @@ Usage (as root, with fprintd stopped; see run-cvtool.sh):
   cvtool.py enroll [--commit "2:0 2:0 3:0"] [--commit "..."] ...
   cvtool.py commit-fill --handles-file F [--max-commits N]
   cvtool.py delete (--handles H,H | --handles-file F) [--auth]
+  cvtool.py enumerate [--type 7] [--buflen 1024]
 Each --commit is the p3..p5 spec "kind:len[:hex]"; they are tried in order on
 the same enrollment until one returns status 0. Default: the stock layout.
 """
@@ -28,7 +29,12 @@ EP_OUT, EP_IN, EP_INT = 0x01, 0x81, 0x85
 ALLOWED = {0x02: 'open', 0x04: 'close', 0x66: 'capture_start', 0x68: 'capture_cancel',
            0x6c: 'enroll_update', 0x6d: 'enroll_discard', 0x6e: 'enroll_commit',
            0x8a: 'enrollment_started', 0x2f: 'match', 0x0a: 'delete_template',
-           0x39: 'get_version', 0x82: 'windows_enroll_prep'}
+           0x39: 'get_version', 0x82: 'windows_enroll_prep',
+           # Read-only; ID and parameters from Broadcom's Apache-2.0 Citadel SDK
+           # (sniten/citadel_sdk_2.1.1: CV_CMD_ENUMERATE_OBJECTS in cvinternal.h,
+           # its dispatcher in cvmanager.c, cv_obj_type in cvapi.h)
+           0x0d: 'enumerate_objects'}
+CV_TYPE_FINGERPRINT = 7
 FLAGS_SYNC, FLAGS_ASYNC = 0x0440, 0x0442
 # The commit's attribute and authorization blocks and the delete's
 # authorization, as the libfprint cv2 driver sends them
@@ -135,8 +141,10 @@ class CV:
         return status, reply
 
     # --- the operations, byte-for-byte as the stock driver sends them ---
-    def open(self):
-        st, r = self.call(0x02, [param(0, u32(0x44)), param(1, b'myAppID\0', 7),
+    def open(self, options=0x44):
+        # options: 0x04 CV_SYNCHRONOUS (+0x40, as the stock driver sends);
+        # 0x08 is CV_SUPPRESS_UI_PROMPTS (Citadel SDK cvapi.h)
+        st, r = self.call(0x02, [param(0, u32(options)), param(1, b'myAppID\0', 7),
                                  param(1, b'myUserID'), param(1, b'', 0)], hdr_handle=0)
         if st:
             sys.exit('open failed: 0x%x' % st)
@@ -484,6 +492,36 @@ def _enroll(cv, specs, max_presses):
     return False
 
 
+def do_enumerate(cv, probes, open_options=0x44, header_flags=FLAGS_SYNC):
+    """List the handles of stored objects of one type (7 = fingerprint).
+    Request: session, type, and an in/out buffer offer (kind 3, length only).
+    probes: list of (type, buffer length), all sent in one session."""
+    cv.open(open_options)
+    try:
+        for obj_type, buflen in probes:
+            _enumerate(cv, obj_type, buflen, header_flags)
+    finally:
+        cv.close()
+
+
+def _enumerate(cv, obj_type, buflen, header_flags=FLAGS_SYNC):
+    log('\n== enumerate objects of type %d (buffer %d bytes, flags 0x%04x) ==' % (obj_type, buflen, header_flags))
+    t0 = time.monotonic()
+    st, r = cv.call(0x0d, [param(0, u32(cv.handle)), param(0, u32(obj_type)), param(3, b'', buflen)],
+                    flags=header_flags, quiet=True)
+    log('   reply after %.3f s' % (time.monotonic() - t0))
+    params = parse_params(r) if len(r) > 0x2c else []
+    for i, (k, ln, d) in enumerate(params):
+        log('   out param %d: kind=%d len=%d' % (i, k, ln))
+    if params:
+        k, ln, d = params[0]
+        handles = [struct.unpack_from('<I', d, o)[0] for o in range(0, len(d) - len(d) % 4, 4)]
+        log('   status 0x%x, %d handle(s): %s' % (st, len(handles),
+            ' '.join('%08x' % h for h in handles)))
+    else:
+        log('   status 0x%x, no output parameters' % st)
+
+
 def do_version(cv, flags):
     try:
         st, r = cv.call(0x39, [param(0, u32(0))], hdr_handle=0, flags=flags, quiet=True)
@@ -501,7 +539,7 @@ def do_version(cv, flags):
 def main():
     global LOG
     ap = argparse.ArgumentParser()
-    ap.add_argument('action', choices=['commit-noenroll', 'enroll', 'commit-fill', 'match', 'delete', 'version', 'stale-probe', 'capture-idle', 'capture-wait', 'reset-state', 'send-82'])
+    ap.add_argument('action', choices=['commit-noenroll', 'enroll', 'commit-fill', 'enumerate', 'match', 'delete', 'version', 'stale-probe', 'capture-idle', 'capture-wait', 'reset-state', 'send-82'])
     ap.add_argument('--commit', action='append', help='p3..p5 spec, e.g. "2:0 2:0 3:4096"')
     ap.add_argument('--max-presses', type=int, default=30)
     ap.add_argument('--handles', default='', help='comma-separated template handles (hex)')
@@ -509,6 +547,11 @@ def main():
     ap.add_argument('--log', default=None)
     ap.add_argument('--handles-file', default=None, help='file of hex handles, one per line')
     ap.add_argument('--max-commits', type=int, default=300)
+    ap.add_argument('--type', type=int, default=CV_TYPE_FINGERPRINT, help='object type to enumerate')
+    ap.add_argument('--buflen', type=int, default=1024, help='bytes offered for the handle list')
+    ap.add_argument('--probes', default='', help='enumerate: type:buflen,... (overrides --type/--buflen)')
+    ap.add_argument('--open-options', default='0x44', help='enumerate: session options for 0x02 (0x08 = suppress UI prompts)')
+    ap.add_argument('--header-flags', default='0x0440', help='enumerate: header flags (0x0200 = suppress UI prompts)')
     ap.add_argument('--auth', action='store_true', help='delete with the authorization block')
     ap.add_argument('--flags', default='0x0440', help='header flags for the version query')
     a = ap.parse_args()
@@ -538,6 +581,10 @@ def main():
             do_match(cv, handles, a.presses)
         elif a.action == 'delete':
             do_delete(cv, handles, a.auth)
+        elif a.action == 'enumerate':
+            probes = ([tuple(int(x, 0) for x in p.split(':')) for p in a.probes.split(',')]
+                      if a.probes else [(a.type, a.buflen)])
+            do_enumerate(cv, probes, int(a.open_options, 0), int(a.header_flags, 0))
         elif a.action == 'commit-fill':
             if not a.handles_file:
                 sys.exit('commit-fill needs --handles-file')

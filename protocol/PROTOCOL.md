@@ -89,6 +89,20 @@ All integers little-endian.
 Flags seen in plaintext mode: `0x0440` (ordinary command), `0x0442` (commands
 `0x66`, `0x2f`, `0x0a`). Replies to failed commands are header-only (0x2c bytes).
 
+Broadcom's public Citadel SDK ([sniten/citadel_sdk_2.1.1](https://github.com/sniten/citadel_sdk_2.1.1), Apache-2.0; `cvinternal.h`) names the
+header fields (transport type 1 = encapsulated command, length, command ID,
+flags, version, session, return status, a 16-byte IV at `0x18`, parameter
+length) and the flag bits, which match every capture:
+
+| Bit | Meaning | Seen |
+|---|---|---|
+| `0x0001` | secure session | Windows' protected traffic |
+| `0x0002` | completion callback (asynchronous) | our `0x0442` commands |
+| `0x0040` | USB transport | every message |
+| `0x0180` | return type | replies (`0x0100`) |
+| `0x0200` | suppress UI prompts | Windows (`0x0241`/`0x0243`) |
+| `0x0400` | spare | set by the stock Linux driver |
+
 ### Parameters
 
 The parameter area is a sequence of:
@@ -102,7 +116,14 @@ u32 kind | u32 length | data[length], zero-padded to a 4-byte boundary
 | 0 | fixed-size value or blob (handles, IDs) |
 | 1 | string (open) |
 | 2 | variable-length block: `0x2f` handle list, `0x6e`/`0x0a` attribute and authorization blocks (empty from the stock Linux driver); output slot |
-| 3 | buffer, sent with length 0 in observed commit requests |
+| 3 | in/out buffer: only the length is sent (the size offered for an output), no data |
+
+The kinds are the SDK's encapsulation types (0 structure, 1 length-prefixed
+structure, 2 length/value pair, 3 in/out length/value pair). A kind-2 or kind-3
+parameter supplies two of a command's arguments (length and value), which is
+how the SDK's argument lists line up with our captured messages: for example
+`0x2f` is session, a fingerprint-control value (`0x48`), a signed integer
+setting (`0x53e2`), an object handle (0) and the handle list.
 
 A request with a declared length that doesn't match the bytes sent is rejected
 with status `0x0d`.
@@ -222,6 +243,23 @@ One `0x0a` per template; fprintd opens a new session for each.
 fprintd runs a [Verify](#verify) sequence against all stored handles before
 enrolling, then closes the session and opens a new one for the enrollment.
 
+## Enumerate (`0x0d`)
+
+Tested 2026-10-04 with cvtool `enumerate` (read-only). The Citadel SDK names
+`0x0d` `CV_CMD_ENUMERATE_OBJECTS` (arguments: session, object type, and an
+output buffer for the handle list; fingerprint objects are type 7), and its
+numbering matches every command ID found first-hand here (`0x02`, `0x04`,
+`0x0a`, `0x2f`, `0x39`, `0x66`, `0x68`, `0x6c`, `0x6d`, `0x6e`).
+
+Request: `0:4` session, `0:4` type, `3:N` (buffer offer). On this reader
+(firmware `00412015`), every attempt fails at once (about 10 ms) with status
+**`0x100015`**, for object types 1, 7, 8 and 10, buffer sizes 0, 16 and 1024,
+and with "suppress UI prompts" set at open (option `0x08`), in the header
+(`0x0200`), or both. It is not `0x57` (unknown command), so the chip
+implements `0x0d` but refuses it in this plaintext session. `0x100015` is in
+the SDK's "user interface" return-code range (`0x00100000` mask); its exact
+meaning for this firmware is not established.
+
 ## Template storage
 
 Tested 2026-10-04 (cvtool `commit-fill` and timed `delete`, `cvtool.log`).
@@ -268,7 +306,8 @@ that assigns a session handle) and `0x24` (128 high-entropy bytes), then opens
 a session with `0x02`. Protected messages carry random-looking bytes at header
 `0x18`–`0x27` (zero in plaintext mode) and a high-entropy payload. Two flag
 variants were seen: `0x0241`/`0x0243` (enrollment, identify) and
-`0x0041`/`0x0043` (delete), so bit `0x0200` does not mean "encrypted".
+`0x0041`/`0x0043` (delete); bit `0x0001` is "secure session" and `0x0200`
+"suppress UI prompts" (see [Header](#header-0x2c-bytes)).
 
 ### What each user action sends
 
@@ -300,6 +339,8 @@ never after a failed identify or an enrollment's duplicate check. The
 parameter differs every time (`0x2b4c125e`, `0xf1eec6a1`, `0x08ec4787`,
 `0x419f2dbb`, `0x196869de`, `0x0b53b38a`), so it is not a user or template ID.
 It always fails with status **`0x57`** in about 13 ms, and Windows carries on.
+In the Citadel SDK, `0x57` is `CV_INVALID_COMMAND`: this chip does not
+implement `0x9a`.
 Behaviorally: a "user signed in" notification with a fresh value, unrelated
 to matching, which this chip refuses. The open driver does not send it.
 
@@ -356,12 +397,13 @@ Sending `0x82` once (as the Windows driver does) restored normal behavior:
 | `0x00` | all | success | — |
 | `0x59` | `0x6c` | sample rejected (poor or partial press); header-only reply | ask for another press |
 | `0x85` | `0x66` | capture already pending; seen on the first `0x66` of every new client after another one exited | `0x68` cancel, retry `0x66` |
-| `0x57` | `0x9a` | always, after each successful Windows sign-in (see [`0x9a`](#0x9a)) | not sent by the open driver |
+| `0x57` | `0x9a` | always, after each successful Windows sign-in (see [`0x9a`](#0x9a)); SDK: `CV_INVALID_COMMAND` | not sent by the open driver |
+| `0x100015` | `0x0d` | enumerate refused in a plaintext session (see [Enumerate](#enumerate-0x0d)) | not sent by the open driver |
 | `0x8d` | `0x6e` | no completed enrollment to commit (also a second commit of the same result) | error |
-| `0x0d` | `0x6e` | malformed request; pending enrollment kept | bug |
-| `0x24` | `0x6e` | firmware `00412001`, commit with empty blocks: rejected, enrollment consumed | suggest firmware update |
-| `0x1b` | `0x2f`, `0x0a` | template handle not on the chip (deleted); tested 2026-10-02 | print not found |
-| `0x47` | `0x2f`, `0x66` | `0x2f` with no template handles; `0x66` (mode `0x48`) after every match | no match / expected, ignore |
+| `0x0d` | `0x6e` | malformed request; pending enrollment kept (SDK: `CV_PARAM_BLOB_INVALID_LENGTH`) | bug |
+| `0x24` | `0x6e` | firmware `00412001`, commit with empty blocks: rejected, enrollment consumed (SDK: `CV_OBJECT_ATTRIBUTES_INVALID`) | suggest firmware update |
+| `0x1b` | `0x2f`, `0x0a` | template handle not on the chip (deleted); tested 2026-10-02 (SDK: `CV_INVALID_OBJECT_HANDLE`) | print not found |
+| `0x47` | `0x2f`, `0x66` | `0x2f` with no template handles; `0x66` (mode `0x48`) after every match (SDK: `CV_INVALID_INPUT_PARAMETER`) | no match / expected, ignore |
 
 ## Security model
 
@@ -379,9 +421,9 @@ handles; delete command.
 
 Still open:
 
-1. Template capacity and behavior when full; whether the chip has a list
-   command at all (none in any Linux or Windows flow; see
-   [Template storage](#template-storage)).
+1. Template capacity and behavior when full (the SDK has
+   `CV_OBJECT_DIRECTORY_FULL`, `0x26`); why enumerate (`0x0d`) is refused
+   with `0x100015` in a plaintext session (see [Enumerate](#enumerate-0x0d)).
 2. Purpose of the `0x66` mode `0x48` call after a match, and of the `0x2f`
    constants `0x48` and `0x53e2`.
 4. Meaning of the `0x02` open parameters (`0x44`, app/user strings) and of
@@ -390,5 +432,5 @@ Still open:
    it; the stock Linux driver doesn't; both work on `00412015`).
 6. Whether `00047026` (and other firmware before `00412001`) enrolls with the
    commit's attribute and authorization blocks, and what those bytes mean.
-7. What exactly `0x9a` reports after a sign-in, and why this chip refuses
-   it with `0x57` (see [`0x9a`](#0x9a)).
+7. What `0x9a` reports after a sign-in (this chip does not implement it:
+   `0x57` is `CV_INVALID_COMMAND`; see [`0x9a`](#0x9a)).
