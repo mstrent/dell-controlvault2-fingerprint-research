@@ -113,9 +113,10 @@ commits: list with our owner hash SHA-1("myAppIDmyUserID"), DATA_FULL for
 hash confirmed on the reader with Windows Hello templates present; list
 tested through fprintd; MR description (from `docs/upstream-mr.md`) and a
 comment updated. Session strings stay `myAppID`/`myUserID` (every Linux
-driver uses them). Installed build: `cv2-list` worktree
-(`.claude/worktrees/cv2-list`, branch `cv2-list-squash` = MR head). Next:
-wait for maintainer review / CI.
+driver uses them). Installed build: `~/projects/libfprint` branch
+`cv2-driver` (= MR head 80c7f744). The fork's `cv2-list` branch holds the
+pre-squash history and can be deleted. Next: wait for maintainer review /
+CI.
 Independent test: Latitude 7480 by a tester on the GitHub issue (all operations
 pass; offered to test further revisions). Firmware package facts are in the
 MR comments and README.
