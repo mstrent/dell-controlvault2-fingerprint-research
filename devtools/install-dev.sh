@@ -1,14 +1,11 @@
 #!/usr/bin/env bash
 # Install the libfprint build with the cv2 driver into /usr/local and make
 # fprintd use it. Revert with uninstall-dev.sh.
-# Run as: pkexec bash devtools/install-dev.sh [libfprint source dir]
-# (default ~/projects/libfprint; pass a worktree to install another branch)
+# Run as: pkexec bash devtools/install-dev.sh
 set -euo pipefail
 [[ $EUID -eq 0 ]] || { echo "run as root (pkexec)" >&2; exit 1; }
 USER_NAME="${PKEXEC_UID:+$(id -nu "$PKEXEC_UID")}"; USER_NAME="${USER_NAME:-${SUDO_USER:-}}"; [[ -n $USER_NAME ]] || { echo "run with pkexec or sudo" >&2; exit 1; }
-SRC="${1:-$(getent passwd "$USER_NAME" | cut -d: -f6)/projects/libfprint}"
-[[ -f "$SRC/libfprint/drivers/cv2/cv2.c" ]] || { echo "no cv2 driver in $SRC" >&2; exit 1; }
-echo "Installing from $SRC ($(runuser -u "$USER_NAME" -- git -C "$SRC" rev-parse --abbrev-ref HEAD))"
+SRC="$(getent passwd "$USER_NAME" | cut -d: -f6)/projects/libfprint"
 cd "$SRC"
 
 if [[ ! -d "$SRC/build-install" ]]; then

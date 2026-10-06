@@ -1,15 +1,12 @@
 #!/usr/bin/env bash
 # Record the libfprint cv2 umockdev tests (tests/cv2 and tests/cv2-cancel)
 # with fprintd out of the way, with desktop notifications for the prompts.
-# Run as: pkexec bash devtools/record-tests.sh [cv2|cancel|retries|both] [libfprint source dir]
-# (default ~/projects/libfprint; pass a worktree to record another branch)
+# Run as: pkexec bash devtools/record-tests.sh [cv2|cancel|retries|both]
 set -uo pipefail
 [[ $EUID -eq 0 ]] || { echo "run as root (pkexec)" >&2; exit 1; }
 HERE="$(cd "$(dirname "$0")" && pwd)"
 USER_NAME="${PKEXEC_UID:+$(id -nu "$PKEXEC_UID")}"; USER_NAME="${USER_NAME:-${SUDO_USER:-}}"; [[ -n $USER_NAME ]] || { echo "run with pkexec or sudo" >&2; exit 1; }
-SRC="${2:-$(getent passwd "$USER_NAME" | cut -d: -f6)/projects/libfprint}"
-[[ -f "$SRC/build/tests/create-driver-test.py" ]] || { echo "no build/ in $SRC" >&2; exit 1; }
-echo "Recording in $SRC"
+SRC="$(getent passwd "$USER_NAME" | cut -d: -f6)/projects/libfprint"
 WHICH="${1:-both}"
 
 restore() {
