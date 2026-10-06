@@ -429,6 +429,21 @@ the reader.
 
   So a list filtered by our hash excludes Windows templates, and it is safe
   to offer for deletion (e.g. when reporting a full chip).
+
+  Every Linux driver seen uses these same strings: Dell's stock TOD driver,
+  PR #13's patched build and both patched `.so` files in `cv2-fingerprint`
+  (16 opens across all Linux captures, no other app or user ID). So one hash
+  covers templates of every Linux driver, and the open driver keeps the
+  stock strings (decided 2026-10-05: a `libfprint`/`cv2` identity would add
+  a second hash for no practical gain).
+- **Label attribute (not used).** Besides the flags entry, the attribute
+  list may hold `CV_ATTRIB_TYPE_LABEL` (type 1, `CV_ATTRIB_TYPE_APP_DEFINED`
+  in the newer header), at most `MAX_ATTRIB_TYPE_LABEL_LENGTH` = 20 bytes
+  (`cvobjhandler.c` `cvValidateAttributes`; longer or unknown types give
+  `0x24`). The commit stores the list as given, and `0x0c`
+  (`CV_CMD_GET_OBJECT`) with an empty auth list returns the header and
+  attributes without authorization (never the template). It could carry
+  finger, enroll date and a short username; untested on this firmware.
 - **Match limit.** The SDK's fingerprint store rejects more than
   `MAX_FP_TEMPLATES` = 50 templates per match (`cvFPSAInit`), so a `0x2f`
   with more handles may fail. Untested.
