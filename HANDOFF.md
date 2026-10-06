@@ -107,6 +107,15 @@ so the blocks make old firmware work without an update. Next: rethink the
 driver's old-firmware messages/gate (no longer needed as a warning), then
 update the MR; respond to maintainer review; CI may need a maintainer to
 start it.
+2026-10-05: list added to the MR (pushed as 80c7f744, fast-forward, four
+commits: list with our owner hash SHA-1("myAppIDmyUserID"), DATA_FULL for
+0x25/0x28, clearer 0x24 message, tests/cv2 recording with list). Owner
+hash confirmed on the reader with Windows Hello templates present; list
+tested through fprintd; MR description (from `docs/upstream-mr.md`) and a
+comment updated. Session strings stay `myAppID`/`myUserID` (every Linux
+driver uses them). Installed build: `cv2-list` worktree
+(`.claude/worktrees/cv2-list`, branch `cv2-list-squash` = MR head). Next:
+wait for maintainer review / CI.
 Independent test: Latitude 7480 by a tester on the GitHub issue (all operations
 pass; offered to test further revisions). Firmware package facts are in the
 MR comments and README.

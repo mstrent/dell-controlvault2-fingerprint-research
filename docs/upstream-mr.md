@@ -7,9 +7,10 @@ should behave the same). Until now this reader only worked through a proprietary
 libfprint-tod module.
 
 **Features:** enroll, verify, identify, delete, list. Prints store the
-chip's 32-bit template handle (`"(u)"`). List returns every fingerprint
-template on the chip, including other systems' (e.g. Windows Hello's), so
-there is no clear. Scan type press, 4 enroll stages.
+chip's 32-bit template handle (`"(u)"`). List returns only the templates
+enrolled with this driver's session IDs (the same as Dell's Linux
+drivers), never other systems' (e.g. Windows Hello's); there is no clear.
+A full chip is reported as `DATA_FULL`. Scan type press, 4 enroll stages.
 
 **Scope:** USB interface 0 only; the smart-card interfaces are untouched and
 the device is never reset.
@@ -21,7 +22,7 @@ come from). The full write-up is below; the unit-test fixtures are bytes copied
 from those captures, and `tests/cv2*/custom.pcapng` are complete captures of
 the driver talking to the reader.
 Research notes, all the raw captures, the probe tool and the design notes
-are public at <this repository's GitHub URL>
+are public at https://github.com/mstrent/dell-controlvault2-fingerprint-research
 (CC0).
 
 ### Behavior worth knowing
@@ -52,10 +53,13 @@ are public at <this repository's GitHub URL>
   stale print doesn't block the user's other fingers. A single missing print
   is reported as `DATA_NOT_FOUND`.
 - **List and fprintd:** with list, fprintd checks its storage against the
-  chip after a failed match and removes prints the chip no longer holds.
-  fprintd deletes templates from the chip only when enrollment reports the
-  chip full, which the driver doesn't report, so other systems' templates
-  are never removed.
+  chip after a failed match and removes prints the chip no longer holds, so
+  a list that may be cut short (a reply filling the buffer offered) is
+  refused rather than returned. When enrollment reports the chip full,
+  fprintd deletes a listed template it has no print for. The list only
+  holds templates with this driver's owner hash, so Windows Hello's are
+  never touched; templates left by Dell's Linux driver or another Linux
+  install on the same laptop can be.
 - **Brief touches** (a finger event with a nonzero length) get "please try
   again"; an enrollment that hasn't finished after 30 accepted samples fails
   with a message to clean the sensor.
@@ -71,8 +75,9 @@ are public at <this repository's GitHub URL>
 - `cv2-proto`: unit tests for the request builders, reply parser, status
   mapping, firmware error and helpers, using captured bytes.
 - `cv2` (umockdev): rejecting a print without template data, enroll, verify
-  match/no-match, identify match/no-match, identify with a print deleted from
-  the chip, verify against a deleted print, delete.
+  match/no-match, identify match/no-match, list (the enrolled prints are
+  listed; after deleting one it no longer is), identify with a print deleted
+  from the chip, verify against a deleted print, delete.
 - `cv2-cancel` (umockdev): cancel during an enrollment, then a full
   enrollment. Runs serially: it cancels a pending interrupt read, and
   umockdev's replay can stall on that under load (see the comments).
@@ -86,7 +91,10 @@ Tested on hardware:
   enroll, verify, identify, delete, sudo, lock screen, reboot, suspend during
   verify, Ctrl-C during enroll and verify. With the commit and delete
   arguments: enroll, verify, identify and delete, and deleting a template
-  committed without them.
+  committed without them. List: through fprintd (a failed match lists both
+  enrolled prints and fprintd keeps them), and with two Windows Hello
+  templates on the chip, which the all-zero owner hash lists and this
+  driver's hash does not.
 - Dell Latitude 7480, Zorin OS 18.1 (Ubuntu 24.04), firmware `00412015`
   (flashed from `00047026`), tested independently by a user of the reader
   ([report](https://github.com/grosa787/dell-controlvault2-fingerprint-linux/issues/3#issuecomment-5971060113)):
@@ -164,7 +172,8 @@ yet observed are listed under
 [Open questions](#open-questions) rather than guessed.
 
 The merge request carries the evidence with it: the request and reply
-fixtures in `tests/test-cv2-proto.c` are bytes copied from these captures, and
+fixtures in `tests/test-cv2-proto.c` are bytes copied from these captures
+(except an empty template list, built from the recorded reply's layout), and
 `tests/cv2*/custom.pcapng` are complete captures of the driver talking to the
 reader.
 
@@ -271,7 +280,7 @@ is rejected with status `0x0d`.
 | `0x6d` | discard enrollment | 0 | `0:4 = 0` | — |
 | `0x2f` | match | session | `0:4` session, `0:4 = 0x48`, `0:4 = 0x53e2`, `0:4 = 0`, `2:4n` template handles | `0:4` match (1/0), `0:4` matched template handle (0 if none) |
 | `0x0a` | delete template | session | `0:4` session, `0:4` template handle, `2:21` authorization | — (~1.4 s) |
-| `0x71` | list templates | session | `0:4 = 20`, `0:20` owner hash (zeros), `0:4 = 7`, `3:1024` | `3:4n` template handles |
+| `0x71` | list templates | session | `0:4 = 20`, `0:20` owner hash, `0:4 = 7`, `3:1024` | `3:4n` template handles |
 
 Attributes are `00 00 04 00 04 00 00 00`. Authorization is
 `01 01 ff 00 00 00 0d 00 0c` followed by `"BroadcomWBF\0"`, 21 bytes. The
@@ -375,16 +384,21 @@ wait for interrupt type 3
 
 ```
 0x02 open
-0x71 list(20, zero hash, 7, 1024) → status 0 (~13 ms); 3:4n handles, 3:0 if none
+0x71 list(20, owner hash, 7, 1024) → status 0 (~13 ms); 3:4n handles, 3:0 if none
 0x04 close
 ```
 
 The SDK names `0x71` `CV_CMD_ENUMERATE_OBJECTS_DIRECT`. Its arguments are
 the byte length of a list of 20-byte owner hashes, the list, the object type
-(7, fingerprint) and the size offered for the reply. An owner hash is the
-SHA-1 of a session's app and user IDs; one of all zeros matches every owner,
-so the list includes templates enrolled by other systems, such as Windows
-Hello on the same laptop. The chip doesn't say which finger a template is
+(7, fingerprint) and the size offered for the reply. Each template records
+an owner hash: the SHA-1 of the enrolling session's app ID and user ID as
+declared at open, here SHA-1(`"myAppIDmyUserID"`) =
+`9f1b5ac0…1850c646` (the declared 7 bytes, without the NUL sent). The
+driver lists with that hash. Dell's stock and patched Linux drivers open
+sessions with the same IDs, so their templates are listed too; Windows
+uses its own. Tested with two Linux and two Windows Hello templates on the
+chip: the all-zero hash, which matches every owner, lists all four; ours
+lists the two Linux ones. The chip doesn't say which finger a template is
 for. The first argument must be the length of the hash list: the chip walks
 its storage once per hash, and a large value with nothing to list kept it
 busy until it was powered off. `0x0d`, the SDK's other enumerate command, is
@@ -410,7 +424,7 @@ kept stored templates. The driver sends `0x82` at every open (about 0.7 s).
 | `0x00` | all | success | — |
 | `0x0d` | `0x6e` | malformed request; pending enrollment kept | protocol error |
 | `0x1b` | `0x2f`, `0x0a` | template handle not on the chip | `DATA_NOT_FOUND`; identify falls back to one handle at a time |
-| `0x24` | `0x6e` | firmware `00412001`, commit with empty arguments: rejected, enrollment consumed (SDK: `CV_OBJECT_ATTRIBUTES_INVALID`; the empty block lacks the flags attribute) | `NOT_SUPPORTED` (firmware update suggested) |
+| `0x24` | `0x6e` | firmware `00412001`, commit with empty arguments: rejected, enrollment consumed (SDK: `CV_OBJECT_ATTRIBUTES_INVALID`; the empty block lacks the flags attribute) | `NOT_SUPPORTED`: the template's storage attributes were rejected; firmware update suggested |
 | `0x47` | `0x2f`, `0x66` | `0x2f` with an empty handle list; `0x66` mode `0x48` after a match | no match |
 | `0x59` | `0x6c` | sample rejected (poor or partial press) | retry |
 | `0x85` | `0x66` | capture already pending (first `0x66` after another client exited) | `0x68` cancel, retry once |
@@ -420,9 +434,9 @@ kept stored templates. The driver sends `0x82` at every open (about 0.7 s).
 Not observed, from the SDK: when the chip is full, the commit (`0x6e`)
 fails with `0x25` (`CV_NO_PERSISTENT_OBJECT_ENTRY_AVAIL`: the flash
 directory holds 200 objects, shared with the chip's other objects) or `0x28`
-(`CV_FLASH_MEMORY_ALLOCATION_FAIL`). `0x71` with too small a reply buffer
-fails with `0x29` (`CV_ENUMERATION_BUFFER_FULL`). The driver reports all
-three as protocol errors.
+(`CV_FLASH_MEMORY_ALLOCATION_FAIL`); the driver reports both as
+`DATA_FULL`. `0x71` with too small a reply buffer fails with `0x29`
+(`CV_ENUMERATION_BUFFER_FULL`), a protocol error.
 
 #### Security model
 
@@ -440,8 +454,7 @@ session instead, which is out of scope.
 2. Exact meaning of `0x82`, and whether it is needed at every open or only
    after power events (it is cheap enough to send every time).
 3. Meaning of the `0x2f` constants `0x48`/`0x53e2`, of the `0x02` open
-   parameters (`0x44`, app/user strings), of `0x66` parameter 2 (`2`), and of
-   mode `0x48`.
+   parameter `0x44`, of `0x66` parameter 2 (`2`), and of mode `0x48`.
 4. Other finger-event lengths besides 0 and 7.
 5. Behavior on firmware other than `00412001` and `00412015` (for example
    `00047026` with the commit's attribute and authorization blocks).
