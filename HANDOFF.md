@@ -116,6 +116,23 @@ comment updated. Session strings stay `myAppID`/`myUserID` (every Linux
 driver uses them). Installed build: `~/projects/libfprint` branch
 `cv2-driver` (= MR head 80c7f744); the fork has no other cv2 branch. Next:
 wait for maintainer review / CI.
+
+### Follow-ups (assessed 2026-10-05; none blocks the MR)
+
+1. **`STORAGE_CLEAR`:** now safe, since the list holds only our owner
+   hash's templates: clear = delete every listed template. Small; record a
+   umockdev step (enroll a test print, clear, list empty).
+2. **Identify over 50 prints:** the SDK caps a `0x2f` at 50 templates
+   (`MAX_FP_TEMPLATES`, `cvFPSAInit`); untested. fprintd's duplicate check
+   at enroll identifies against every user's prints, so >50 enrolled
+   fingers system-wide could fail. Fix: batch galleries at 50.
+3. **Unverified on hardware:** a full chip (`0x25`/`0x28` → `DATA_FULL`),
+   firmware `00047026` with the commit blocks, suspend mid-operation beyond
+   the one case tested.
+4. **Inherent, not fixable:** modest match rate (same as the vendor
+   driver), unauthenticated plaintext channel (documented), no image capture.
+Not needed: on-chip duplicates check (fprintd does it), suspend handler
+(the reset at open covers it).
 Independent test: Latitude 7480 by a tester on the GitHub issue (all operations
 pass; offered to test further revisions). Firmware package facts are in the
 MR comments and README.
