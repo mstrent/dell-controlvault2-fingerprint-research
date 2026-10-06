@@ -415,8 +415,20 @@ the reader.
 - **Owner hash.** Each object records the SHA-1 of its session's app ID
   followed by its user ID (`cvutilhandler.c`, open session; all zeros when
   both are empty), and `0x71` with that hash lists only that owner's objects.
-  For our sessions that should be SHA-1(`"myAppIDmyUserID"`), assuming the
-  declared lengths (7 and 8) are the ones hashed. Untested.
+  **Confirmed on the reader** (cvtool `enum-hashes`, 2026-10-05, firmware
+  `00412015`): ours is SHA-1(`"myAppIDmyUserID"`) =
+  `9f1b5ac067d8f50cfc3fe375602a36021850c646`. The firmware hashes the
+  declared lengths (7 and 8), not the NUL the app ID is sent with.
+
+  | Hash | Linux prints only | + 2 Windows Hello prints |
+  |---|---|---|
+  | all zeros (any owner) | `00e66cc0 004a3866` | `00e66cc0 004a3866 00ee64fa 00afb877` |
+  | SHA-1(`myAppIDmyUserID`) | `00e66cc0 004a3866` | `00e66cc0 004a3866` |
+  | SHA-1(`myAppID\0myUserID`) | none | none |
+  | SHA-1 of a made-up owner | none | none |
+
+  So a list filtered by our hash excludes Windows templates, and it is safe
+  to offer for deletion (e.g. when reporting a full chip).
 - **Match limit.** The SDK's fingerprint store rejects more than
   `MAX_FP_TEMPLATES` = 50 templates per match (`cvFPSAInit`), so a `0x2f`
   with more handles may fail. Untested.
@@ -553,8 +565,7 @@ Still open:
 
 1. Template capacity and behavior when full on the reader (the SDK
    predicts `0x25` or `0x28` at commit; see
-   [Capacity and a full chip](#capacity-and-a-full-chip-sdk)); whether `0x71`
-   with our owner hash lists only Linux-enrolled templates; why enumerate
+   [Capacity and a full chip](#capacity-and-a-full-chip-sdk)); why enumerate
    (`0x0d`) is refused with `0x100015` in a plaintext session (see
    [Enumerate](#enumerate-0x0d)).
 2. Purpose of the `0x66` mode `0x48` call after a match, and of the `0x2f`

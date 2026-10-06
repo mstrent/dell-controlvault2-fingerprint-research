@@ -19,10 +19,11 @@ Usage (as root, with fprintd stopped; see run-cvtool.sh):
   cvtool.py delete (--handles H,H | --handles-file F) [--auth]
   cvtool.py enumerate [--type 7] [--buflen 1024]
   cvtool.py enumerate-direct [--type 7] [--buflen 1024]
+  cvtool.py enum-hashes [--types 7] [--hashes zero,app-user,app-nul-user,control]
 Each --commit is the p3..p5 spec "kind:len[:hex]"; they are tried in order on
 the same enrollment until one returns status 0. Default: the stock layout.
 """
-import argparse, os, struct, sys, time
+import argparse, hashlib, os, struct, sys, time
 import usb.core, usb.util
 
 VID, PID = 0x0A5C, 0x5834
@@ -547,7 +548,18 @@ def _enumerate(cv, obj_type, buflen, header_flags=FLAGS_SYNC):
         log('   status 0x%x, no output parameters' % st)
 
 
-def do_enum_hashes(cv, obj_types, buflen):
+# Owner hashes for enum-hashes --hashes. The SDK's open session hashes the
+# app ID then the user ID; whether the firmware takes our app ID's declared
+# length (7) or the 8 bytes sent decides which of the first two is ours.
+OWNER_HASHES = {
+    'zero': b'\0' * 20,
+    'app-user': hashlib.sha1(b'myAppIDmyUserID').digest(),
+    'app-nul-user': hashlib.sha1(b'myAppID\0myUserID').digest(),
+    'control': hashlib.sha1(b'cvtool-no-such-owner').digest(),
+}
+
+
+def do_enum_hashes(cv, obj_types, buflen, hash_names=('zero',)):
     """0x71 called the way the SDK's cv_enumerate_objects_direct expects:
     arg 0 is the byte length of a list of 20-byte owner hashes, arg 1 is that
     list, arg 2 is the object type, arg 3 the buffer offer. One all-zero hash
@@ -557,10 +569,11 @@ def do_enum_hashes(cv, obj_types, buflen):
     SHA1_LEN = 20
     cv.open()
     try:
-        for obj_type in obj_types:
-            log('\n== enum (one zero hash) type %d, buffer %d ==' % (obj_type, buflen))
+        for obj_type, name in [(t, n) for t in obj_types for n in hash_names]:
+            owner = OWNER_HASHES[name]
+            log('\n== enum (hash %s %s) type %d, buffer %d ==' % (name, owner.hex(), obj_type, buflen))
             t0 = time.monotonic()
-            st, r = cv.call(0x71, [param(0, u32(SHA1_LEN)), param(0, b'\0' * SHA1_LEN),
+            st, r = cv.call(0x71, [param(0, u32(SHA1_LEN)), param(0, owner),
                                    param(0, u32(obj_type)), param(3, b'', buflen)], quiet=True)
             dt = time.monotonic() - t0
             params = parse_params(r) if len(r) > 0x2c else []
@@ -643,6 +656,7 @@ def main():
     ap.add_argument('--probes', default='', help='enumerate: type:buflen,... (overrides --type/--buflen)')
     ap.add_argument('--open-options', default='0x44', help='enumerate: session options for 0x02 (0x08 = suppress UI prompts)')
     ap.add_argument('--header-flags', default='0x0440', help='enumerate: header flags (0x0200 = suppress UI prompts)')
+    ap.add_argument('--hashes', default='zero', help='enum-hashes: comma-separated owner hashes, one 0x71 each: ' + ','.join(OWNER_HASHES))
     ap.add_argument('--auth', action='store_true', help='delete with the authorization block')
     ap.add_argument('--flags', default='0x0440', help='header flags for the version query')
     a = ap.parse_args()
@@ -669,7 +683,8 @@ def main():
         elif a.action == 'send-82':
             do_send_82(cv)
         elif a.action == 'enum-hashes':
-            do_enum_hashes(cv, [int(x, 0) for x in a.types.split(',')] if a.types else [a.type], a.buflen)
+            do_enum_hashes(cv, [int(x, 0) for x in a.types.split(',')] if a.types else [a.type], a.buflen,
+                           [n for n in a.hashes.split(',') if n])
         elif a.action == 'match-each':
             do_match_each(cv, handles, a.fingers.split(','))
         elif a.action == 'match':
